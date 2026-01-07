@@ -1,0 +1,1705 @@
+---
+title: "Analyse des Accidents Ferroviaires"
+subtitle: "Étude des dynamiques temporelles et spatiales"
+author: "Wiem DOUKALI"
+date: "1 janvier 2026"
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+filters:
+  - webr
+---
+
+## Introduction
+
+La sécurité ferroviaire repose sur une planification rigoureuse et une maintenance basée sur les données. Les accidents ferroviaires constituent une préoccupation majeure pour la sécurité des infrastructures et des passagers.
+
+Cette étude analyse les séries temporelles d'accidents ferroviaires pour :
+
+- Visualiser l'évolution annuelle des accidents
+- Identifier les tendances saisonnières et mensuelles
+- Calculer les indicateurs statistiques clés (moyennes, minima, maxima)
+- Explorer la distribution géographique et les types d'accidents
+
+L'objectif est de fournir un aperçu clair et concis pour soutenir la prise de décision des autorités ferroviaires et des ingénieurs de sécurité.
+
+## Méthodes
+
+### Diagramme méthodologique
+
+```{mermaid}
+graph TD
+    A[Données brutes - Accidents ferroviaires]
+    A --> B[Étape 1: Acquisition des données]
+    B --> C[Charger le fichier Excel]
+    C --> D[Inspecter la structure]
+    
+    D --> E[Étape 2: Prétraitement]
+    E --> F[Nettoyer les colonnes]
+    F --> G[Convertir les dates]
+    G --> H[Extraire année/mois/jour]
+    H --> I[Normaliser les variables]
+    
+    I --> J[Étape 3: Agrégation]
+    J --> K[Agrégation mensuelle]
+    J --> L[Agrégation par type]
+    J --> M[Agrégation par zone]
+    
+    K --> N[Étape 4: Visualisation]
+    L --> O[Étape 4: Visualisation]
+    M --> P[Étape 4: Visualisation]
+    
+    N --> Q[Résultats: Tendances temporelles]
+    O --> R[Résultats: Types d'accidents]
+    P --> S[Résultats: Répartition géographique]
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style C fill:#f3e5f5
+    style D fill:#f3e5f5
+    style E fill:#f3e5f5
+    style F fill:#f3e5f5
+    style G fill:#f3e5f5
+    style H fill:#f3e5f5
+    style I fill:#f3e5f5
+    style J fill:#e8f5e8
+    style K fill:#e8f5e8
+    style L fill:#e8f5e8
+    style M fill:#e8f5e8
+    style N fill:#fff3e0
+    style O fill:#fff3e0
+    style P fill:#fff3e0
+    style Q fill:#e8f5e8,stroke:#333
+    style R fill:#e8f5e8,stroke:#333
+    style S fill:#e8f5e8,stroke:#333
+```
+
+L'approche démontre l'utilisation de tableaux croisés dynamiques pour agréger les données selon certains critères. Nous utiliserons également le calcul de date et d'heure pour dériver des critères d'agrégation à partir d'une seule colonne de date.
+
+L'ensemble de données se compose de mesures quotidiennes d'accidents ferroviaires.
+
+## Étape 1 : Installation et importation des bibliothèques
+
+```{r}
+# Fonction améliorée pour installer et charger les packages
+install_if_missing <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    tryCatch({
+      install.packages(pkg, dependencies = TRUE, 
+                       repos = "https://cloud.r-project.org/")
+      cat("✓ Package installé :", pkg, "\n")
+    }, error = function(e) {
+      cat("✗ Échec d'installation pour :", pkg, "-", e$message, "\n")
+      return(FALSE)
+    })
+  }
+  
+  # Tenter de charger le package
+  if (requireNamespace(pkg, quietly = TRUE)) {
+    suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+    cat("Package chargé :", pkg, "\n")
+    return(TRUE)
+  } else {
+    cat("Impossible de charger :", pkg, "\n")
+    return(FALSE)
+  }
+}
+
+# Liste des packages réellement utiles
+packages <- c(
+  "readxl",    # Lecture fichiers Excel
+  "dplyr",     # Manipulation données
+  "ggplot2",   # Visualisation
+  "lubridate", # Dates
+  "tidyr",     # Données tidy
+  "scales",    # Échelles pour ggplot
+  "gridExtra", # Disposition graphiques
+  "corrplot",  # Matrices de corrélation
+  "knitr"      # Rapport
+)
+
+cat("Installation et chargement des packages...\n\n")
+
+# Suivre les succès et échecs
+results <- sapply(packages, install_if_missing)
+successful <- packages[unlist(results)]
+
+# Options globales
+options(
+  stringsAsFactors = FALSE,
+  scipen = 999,           # Désactiver la notation scientifique
+  warn = 1,               # Afficher les warnings
+  digits = 4              # Nombre de chiffres significatifs
+)
+
+# Options dplyr (si dplyr est chargé)
+if ("dplyr" %in% successful) {
+  options(
+    dplyr.width = Inf,
+    dplyr.print_max = 100,
+    dplyr.print_min = 10
+  )
+}
+
+# Thème ggplot2 (si ggplot2 est chargé)
+if ("ggplot2" %in% successful) {
+  theme_set(theme_minimal(base_size = 12))
+}
+
+# Confirmation
+cat("RÉCAPITULATIF\n")
+cat("Packages installés avec succès :", length(successful), "/", length(packages), "\n")
+
+if (length(successful) < length(packages)) {
+  failed <- setdiff(packages, successful)
+  cat("Packages échoués :", paste(failed, collapse = ", "), "\n")
+  cat("Conseil : Installez-les manuellement avec : install.packages('nom_du_package')\n")
+}
+
+cat("\nRépertoire courant :", getwd(), "\n")
+```
+
+## Étape 2 : Vérification et Chargement des Données
+
+```{r}
+# Chargement simple et direct
+library(readxl)
+
+# Chemin du fichier
+chemin <- "C:/Users/dell/Downloads/capstone_R-main/capstone_R-main/accidents.xlsx"
+
+# Vérifier
+if (file.exists(chemin)) {
+  cat("Fichier trouvé !\n")
+  
+  # Charger
+  accidents <- read_excel(chemin)
+  
+  # Afficher
+  cat("Lignes :", nrow(accidents), "\n")
+  cat("Colonnes :", ncol(accidents), "\n")
+  cat("\nColonnes :\n")
+  print(colnames(accidents))
+  
+} else {
+  cat("ERREUR : Fichier non trouvé\n")
+  cat("Cherché à :", chemin, "\n")
+}
+```
+
+## Étape 3 : Exploration Initiale et Compréhension des Données
+
+```{r}
+cat("1. APERÇU DES DONNÉES\n")
+print(head(accidents))
+
+cat("2. STRUCTURE\n")
+str(accidents)
+
+cat("3. RÉSUMÉ STATISTIQUE\n")
+print(summary(accidents))
+
+cat("4. VALEURS MANQUANTES\n")
+manquantes <- colSums(is.na(accidents))
+if (sum(manquantes) > 0) {
+  cat("Colonnes avec valeurs manquantes :\n")
+  for (col in names(manquantes)) {
+    if (manquantes[col] > 0) {
+      cat("  ", col, ":", manquantes[col], "manquantes\n")
+    }
+  }
+} else {
+  cat("Aucune valeur manquante\n")
+}
+cat("5. TYPES DE COLONNES\n")
+cat("Numériques :", sum(sapply(accidents, is.numeric)), "\n")
+cat("Textuelles :", sum(sapply(accidents, is.character)), "\n")
+```
+
+## ÉTAPE 4 : Nettoyage et Préparation des Données
+
+```{r}
+# Charger la bibliothèque nécessaire
+library(dplyr)
+
+# 1. Copie des données
+cat("1. COPIE DES DONNÉES\n")
+accidents_clean <- as.data.frame(accidents)  # S'assurer que c'est un dataframe
+cat("Copie créée\n\n")
+
+# 2. Renommage des colonnes
+cat("2. RENOMMAGE DES COLONNES\n")
+# Liste de renommage (avec vérification des noms existants)
+existing_cols <- colnames(accidents_clean)
+renommer <- list(
+  'N°' = 'id_accident',
+  'Date' = 'date',
+  'Nature incident' = 'type_accident',
+  'Lieu' = 'lieu',
+  'Blessés' = 'blesses',
+  'Tués' = 'tues',
+  'Ligne' = 'ligne',
+  'Cause' = 'cause',
+  'Observations' = 'observations'
+)
+
+# Appliquer le renommage uniquement pour les colonnes existantes
+col_renamed <- 0
+for (ancien in names(renommer)) {
+  if (ancien %in% existing_cols) {
+    colnames(accidents_clean)[colnames(accidents_clean) == ancien] <- renommer[[ancien]]
+    col_renamed <- col_renamed + 1
+  }
+}
+cat("Colonnes renommées :", col_renamed, "/", length(renommer), "\n")
+cat("Colonnes actuelles :", ncol(accidents_clean), "\n\n")
+
+# 3. Suppression colonnes inutiles
+cat("3. SUPPRESSION COLONNES\n")
+
+# Colonnes avec trop de valeurs manquantes (>50%)
+if (nrow(accidents_clean) > 0) {
+  manquantes <- colSums(is.na(accidents_clean)) / nrow(accidents_clean) * 100
+  supprimer <- names(manquantes[manquantes > 50 & !is.na(manquantes)])
+  
+  if (length(supprimer) > 0) {
+    accidents_clean <- accidents_clean[, !colnames(accidents_clean) %in% supprimer, drop = FALSE]
+    cat("Colonnes supprimées :", paste(supprimer, collapse = ", "), "\n")
+  } else {
+    cat("Aucune colonne à supprimer (aucune colonne avec >50% de valeurs manquantes)\n")
+  }
+} else {
+  cat("Attention : Le dataframe est vide\n")
+}
+cat("\n")
+
+# 4. Conversion types de données
+cat("4. CONVERSION DES TYPES\n")
+
+# Conversion date avec gestion d'erreur
+if ("date" %in% colnames(accidents_clean)) {
+  tryCatch({
+    accidents_clean$date <- as.Date(accidents_clean$date)
+    cat("'date' convertie en Date\n")
+  }, error = function(e) {
+    cat("Erreur conversion date :", e$message, "\n")
+    cat("   Valeurs uniques dans 'date' :", paste(unique(head(accidents_clean$date, 5)), collapse = ", "), "...\n")
+  })
+} else {
+  cat("'date' non trouvée\n")
+}
+
+# Conversion numériques
+numeriques <- c('blesses', 'tues', 'Retard', 'PK Ligne')
+for (col in intersect(numeriques, colnames(accidents_clean))) {
+  # Sauvegarde de l'original pour debug
+  original_na <- sum(is.na(accidents_clean[[col]]))
+  
+  # Conversion
+  accidents_clean[[col]] <- as.numeric(accidents_clean[[col]])
+  
+  # Vérification
+  new_na <- sum(is.na(accidents_clean[[col]]))
+  if (new_na > original_na) {
+    cat("Attention :", new_na - original_na, "valeurs devenues NA lors de la conversion de", col, "\n")
+  }
+  cat("✓", col, "converti en numérique\n")
+}
+cat("\n")
+
+# 5. Gestion valeurs manquantes
+cat("5. GESTION DES VALEURS MANQUANTES\n")
+
+remplacer <- list(
+  blesses = 0,
+  tues = 0,
+  type_accident = "Non spécifié",
+  lieu = "Lieu inconnu"
+)
+
+for (col in names(remplacer)) {
+  if (col %in% colnames(accidents_clean)) {
+    avant <- sum(is.na(accidents_clean[[col]]))
+    if (avant > 0) {
+      accidents_clean[[col]][is.na(accidents_clean[[col]])] <- remplacer[[col]]
+      cat("✓", col, ":", avant, "NA remplacés par '", remplacer[[col]], "'\n")
+    } else {
+      cat("✓", col, ": aucune valeur manquante\n")
+    }
+  } else {
+    cat("✗", col, ": colonne non trouvée\n")
+  }
+}
+
+# Supprimer lignes avec trop de NA
+if ("date" %in% colnames(accidents_clean) && "type_accident" %in% colnames(accidents_clean)) {
+  avant_nettoyage <- nrow(accidents_clean)
+  # Sélectionner les lignes complètes pour ces deux colonnes
+  lignes_valides <- complete.cases(accidents_clean[, c("date", "type_accident")])
+  accidents_clean <- accidents_clean[lignes_valides, ]
+  apres_nettoyage <- nrow(accidents_clean)
+  cat("Lignes avant nettoyage :", avant_nettoyage, "\n")
+  cat("Lignes après nettoyage :", apres_nettoyage, "\n")
+  cat("Lignes supprimées :", avant_nettoyage - apres_nettoyage, "\n")
+} else {
+  cat("Impossible de nettoyer les lignes : 'date' ou 'type_accident' manquants\n")
+}
+cat("\n")
+
+# 6. Nettoyage texte
+cat("6. NETTOYAGE TEXTE\n")
+
+if ("type_accident" %in% colnames(accidents_clean)) {
+  # Afficher quelques exemples avant nettoyage
+  if (nrow(accidents_clean) > 0) {
+    avant <- head(accidents_clean$type_accident, 3)
+    accidents_clean$type_accident <- trimws(accidents_clean$type_accident)
+    accidents_clean$type_accident <- gsub("\\s+", " ", accidents_clean$type_accident)
+    apres <- head(accidents_clean$type_accident, 3)
+    cat("✓ Texte nettoyé pour type_accident\n")
+    cat("   Exemple avant :", paste(avant, collapse = " | "), "\n")
+    cat("   Exemple après :", paste(apres, collapse = " | "), "\n")
+  } else {
+    cat("Aucune donnée dans type_accident\n")
+  }
+} else {
+  cat("'type_accident' non trouvé\n")
+}
+
+if ("observations" %in% colnames(accidents_clean)) {
+  accidents_clean$observations <- gsub("[^[:alnum:][:space:].,;:!?()-]", "", accidents_clean$observations)
+  cat("Texte nettoyé pour observations\n")
+  if (nrow(accidents_clean) > 0 && !is.na(accidents_clean$observations[1])) {
+    cat("   Exemple :", substr(accidents_clean$observations[1], 1, 50), "...\n")
+  }
+} else {
+  cat("'observations' non trouvé\n")
+}
+cat("\n")
+
+# 7. Variables dérivées
+cat("7. CRÉATION DE NOUVELLES VARIABLES\n")
+
+if ("date" %in% colnames(accidents_clean) && nrow(accidents_clean) > 0) {
+  tryCatch({
+    accidents_clean$annee <- format(accidents_clean$date, "%Y")
+    accidents_clean$mois <- format(accidents_clean$date, "%m")
+    accidents_clean$jour_semaine <- weekdays(accidents_clean$date)
+    cat("Variables temporelles créées\n")
+    cat("   Années uniques :", paste(unique(accidents_clean$annee), collapse = ", "), "\n")
+  }, error = function(e) {
+    cat("Erreur création variables temporelles :", e$message, "\n")
+  })
+} else {
+  cat("'date' non trouvé ou données vides\n")
+}
+
+# Gravité
+if (all(c("blesses", "tues") %in% colnames(accidents_clean)) && nrow(accidents_clean) > 0) {
+  accidents_clean$gravite <- ifelse(
+    accidents_clean$tues > 0, "Mortel",
+    ifelse(accidents_clean$blesses > 0, "Avec blessés", "Matériel")
+  )
+  
+  # Statistiques sur la gravité
+  if (!all(is.na(accidents_clean$gravite))) {
+    gravite_table <- table(accidents_clean$gravite, useNA = "ifany")
+    cat("Variable 'gravite' créée\n")
+    cat("   Distribution :\n")
+    for(g in names(gravite_table)) {
+      cat("     ", g, ":", gravite_table[g], "accidents\n")
+    }
+  } else {
+    cat("Variable 'gravite' créée mais toutes valeurs sont NA\n")
+  }
+} else {
+  cat("Impossible de créer 'gravite' : 'blesses' et/ou 'tues' manquants ou données vides\n")
+}
+cat("\n")
+
+# 8. Résumé final 
+cat("8. RÉSUMÉ FINAL\n")
+cat("Dimensions :", nrow(accidents_clean), "lignes x", ncol(accidents_clean), "colonnes\n\n")
+
+if (nrow(accidents_clean) > 0) {
+  cat("Structure des colonnes :\n")
+  
+  # Fonction corrigée pour obtenir la valeur d'exemple
+  get_example_value <- function(x) {
+    if (length(x) == 0 || all(is.na(x))) {
+      return("(vide)")
+    }
+    # Prendre la première valeur non-NA
+    non_na_vals <- x[!is.na(x)]
+    if (length(non_na_vals) == 0) {
+      return("(toutes NA)")
+    }
+    val <- as.character(non_na_vals[1])
+    # Tronquer si trop long
+    if (nchar(val) > 20) {
+      return(paste0(substr(val, 1, 20), "..."))
+    }
+    return(val)
+  }
+  
+  # Créer le tableau de structure
+  str_df <- data.frame(
+    Colonne = colnames(accidents_clean),
+    Type = sapply(accidents_clean, function(x) paste(class(x), collapse = ", ")),
+    `NA_count` = sapply(accidents_clean, function(x) sum(is.na(x))),
+    `NA_%` = sapply(accidents_clean, function(x) round(sum(is.na(x))/nrow(accidents_clean)*100, 1)),
+    `Exemple` = sapply(accidents_clean, get_example_value),
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+  
+  # Afficher le tableau
+  print(str_df, row.names = FALSE)
+  
+  cat("\nValeurs manquantes restantes :\n")
+  total_na <- sum(is.na(accidents_clean))
+  if (total_na == 0) {
+    cat("Aucune valeur manquante\n")
+  } else {
+    cat("Total NA :", total_na, "\n")
+    na_by_col <- colSums(is.na(accidents_clean))
+    na_by_col <- na_by_col[na_by_col > 0]
+    for (col in names(na_by_col)) {
+      cat("  ", col, ":", na_by_col[col], "NA (", 
+          round(na_by_col[col]/nrow(accidents_clean)*100, 1), "%)\n")
+    }
+  }
+  
+  cat("\nRésumé statistique des variables numériques :\n")
+  num_vars <- sapply(accidents_clean, is.numeric)
+  if (any(num_vars)) {
+    num_data <- accidents_clean[, num_vars, drop = FALSE]
+    if (ncol(num_data) > 0) {
+      print(summary(num_data))
+    } else {
+      cat("Aucune variable numérique\n")
+    }
+  } else {
+    cat("Aucune variable numérique\n")
+  }
+  
+  cat("\nAperçu des données (premières 5 lignes) :\n")
+  print(head(accidents_clean, 5))
+  
+  cat("\nStatistiques sur les variables temporelles :\n")
+  if ("annee" %in% colnames(accidents_clean) && !all(is.na(accidents_clean$annee))) {
+    year_stats <- table(accidents_clean$annee)
+    if (length(year_stats) > 0) {
+      cat("Accidents par année :\n")
+      for(year in names(year_stats)) {
+        cat("  ", year, ":", year_stats[year], "\n")
+      }
+    }
+  }
+  
+  if ("gravite" %in% colnames(accidents_clean) && !all(is.na(accidents_clean$gravite))) {
+    cat("\nAccidents par gravité :\n")
+    gravite_stats <- table(accidents_clean$gravite)
+    for(g in names(gravite_stats)) {
+      pourcentage <- round(gravite_stats[g] / nrow(accidents_clean) * 100, 1)
+      cat("  ", g, ":", gravite_stats[g], "(", pourcentage, "%)\n")
+    }
+  }
+} else {
+  cat("Le dataframe est vide après nettoyage\n")
+}
+
+cat("NETTOYAGE TERMINÉ AVEC SUCCÈS !\n")
+
+# 9. Sauvegarde des données nettoyées
+cat("9. SAUVEGARDE DES DONNÉES NETTOYÉES\n")
+if (nrow(accidents_clean) > 0) {
+  output_file <- "accidents_clean.csv"
+  write.csv(accidents_clean, output_file, row.names = FALSE)
+  cat("Données sauvegardées dans :", output_file, "\n")
+  cat("Taille du fichier :", round(file.size(output_file)/1024, 1), "KB\n")
+} else {
+  cat("Impossible de sauvegarder : dataframe vide\n")
+}
+```
+
+## ÉTAPE 5 : Analyse Statistique Descriptive
+
+```{r}
+# Fonctions utilitaires
+format_nombre <- function(x) {
+  if (is.numeric(x)) {
+    if (x >= 1000) {
+      return(format(round(x), big.mark = " ", decimal.mark = ","))
+    } else if (x < 1) {
+      return(round(x, 3))
+    } else {
+      return(round(x, 1))
+    }
+  }
+  return(x)
+}
+
+afficher_stat <- function(nom, valeur, unite = "", indent = 0) {
+  espace <- paste(rep(" ", indent), collapse = "")
+  cat(sprintf("%s%-40s : %10s %s\n", espace, nom, valeur, unite))
+}
+
+
+cat("1. STATISTIQUES GÉNÉRALES DES ACCIDENTS\n")
+# Vérifier si accidents_clean existe
+if (!exists("accidents_clean")) {
+  cat("ERREUR : L'objet 'accidents_clean' n'existe pas\n")
+  cat("   Exécutez d'abord l'étape de nettoyage des données\n")
+  cat("   Commandes possibles :\n")
+  cat("   - source('scripts/02_nettoyage.R')\n")
+  cat("   - load('data/accidents_clean.RData')\n")
+} else {
+  # Validation des données
+  n_accidents <- nrow(accidents_clean)
+  
+  if (n_accidents == 0) {
+    cat("Attention : Le dataset ne contient aucune observation\n")
+  } else {
+    cat(sprintf("ANALYSE DE %s ACCIDENTS FERROVIAIRES\n\n", format_nombre(n_accidents)))
+    
+    # A. MÉTRIQUES DE BASE
+    cat("   A. MÉTRIQUES DE BASE\n")
+    cat("   ", paste(rep("-", 40), collapse = ""), "\n")
+    
+    afficher_stat("Nombre total d'accidents", format_nombre(n_accidents), "accidents", 3)
+    
+    # Période couverte
+    if ("date" %in% names(accidents_clean)) {
+      dates_valides <- accidents_clean$date[!is.na(accidents_clean$date)]
+      if (length(dates_valides) > 0) {
+        date_min <- min(dates_valides)
+        date_max <- max(dates_valides)
+        periode <- paste(format(date_min, "%d/%m/%Y"), "au", format(date_max, "%d/%m/%Y"))
+        duree_jours <- as.numeric(difftime(date_max, date_min, units = "days")) + 1
+        
+        afficher_stat("Période analysée", periode, "", 3)
+        afficher_stat("Durée de la période", format_nombre(duree_jours), "jours", 3)
+        afficher_stat("Jours avec accidents", 
+                     format_nombre(length(unique(dates_valides))), "jours", 3)
+        
+        # Densité d'accidents
+        densite <- round(n_accidents / duree_jours * 365, 2)
+        afficher_stat("Densité annuelle estimée", 
+                     format_nombre(densite), "accidents/an", 3)
+      }
+    }
+    
+    # B. IMPACT HUMAIN
+    cat("\n   B. IMPACT HUMAIN\n")
+    # Décès
+    if ("tues" %in% names(accidents_clean)) {
+      total_tues <- sum(accidents_clean$tues, na.rm = TRUE)
+      accidents_avec_tues <- sum(accidents_clean$tues > 0, na.rm = TRUE)
+      taux_accidents_tues <- round(accidents_avec_tues / n_accidents * 100, 1)
+      
+      afficher_stat("Nombre total de décès", format_nombre(total_tues), "décès", 3)
+      afficher_stat("Accidents avec décès", 
+                   paste(format_nombre(accidents_avec_tues), 
+                         sprintf("(%.1f%%)", taux_accidents_tues)), "", 3)
+      
+      if (accidents_avec_tues > 0) {
+        moyenne_tues <- round(total_tues / accidents_avec_tues, 2)
+        afficher_stat("Décès moyens par accident mortel", 
+                     format_nombre(moyenne_tues), "décès", 3)
+      }
+    } else {
+      afficher_stat("Nombre total de décès", "Non disponible", "", 3)
+    }
+    
+    # Blessés
+    if ("blesses" %in% names(accidents_clean)) {
+      total_blesses <- sum(accidents_clean$blesses, na.rm = TRUE)
+      accidents_avec_blesses <- sum(accidents_clean$blesses > 0, na.rm = TRUE)
+      taux_accidents_blesses <- round(accidents_avec_blesses / n_accidents * 100, 1)
+      
+      afficher_stat("Nombre total de blessés", format_nombre(total_blesses), "blessés", 3)
+      afficher_stat("Accidents avec blessés", 
+                   paste(format_nombre(accidents_avec_blesses), 
+                         sprintf("(%.1f%%)", taux_accidents_blesses)), "", 3)
+      
+      if (accidents_avec_blesses > 0) {
+        moyenne_blesses <- round(total_blesses / accidents_avec_blesses, 2)
+        afficher_stat("Blessés moyens par accident", 
+                     format_nombre(moyenne_blesses), "blessés", 3)
+      }
+    } else {
+      afficher_stat("Nombre total de blessés", "Non disponible", "", 3)
+    }
+    
+    # C. IMPACT OPÉRATIONNEL (RETARDS)
+    cat("\n   C. IMPACT OPÉRATIONNEL\n") 
+    if ("Retard" %in% names(accidents_clean)) {
+      retards <- accidents_clean$Retard[!is.na(accidents_clean$Retard)]
+      
+      if (length(retards) > 0) {
+        retard_total_min <- sum(retards, na.rm = TRUE)
+        retard_total_heures <- round(retard_total_min / 60, 1)
+        retard_moyen <- round(mean(retards, na.rm = TRUE), 1)
+        retard_median <- round(median(retards, na.rm = TRUE), 1)
+        retard_max <- max(retards, na.rm = TRUE)
+        
+        afficher_stat("Retard total cumulé", 
+                     paste(format_nombre(retard_total_heures), "heures"), "", 3)
+        afficher_stat("Retard moyen par accident", 
+                     paste(format_nombre(retard_moyen), "minutes"), "", 3)
+        afficher_stat("Retard médian", 
+                     paste(format_nombre(retard_median), "minutes"), "", 3)
+        afficher_stat("Retard maximum", 
+                     paste(format_nombre(retard_max), "minutes"), "", 3)
+        
+        # Accidents avec retard significatif (> 30 min)
+        accidents_retard_30min <- sum(retards > 30, na.rm = TRUE)
+        taux_retard_30min <- round(accidents_retard_30min / length(retards) * 100, 1)
+        afficher_stat("Accidents avec retard > 30 min", 
+                     paste(format_nombre(accidents_retard_30min), 
+                           sprintf("(%.1f%%)", taux_retard_30min)), "", 3)
+      }
+    } else {
+      afficher_stat("Données de retard", "Non disponibles", "", 3)
+    }
+  }
+}
+cat("\n")
+
+
+cat("2. DISTRIBUTION PAR TYPE D'ACCIDENT\n")
+# Identifier la colonne de type d'accident
+type_col <- NULL
+possible_type_cols <- c("type_accident", "Nature incident", "Nature", "Type")
+for (col in possible_type_cols) {
+  if (col %in% names(accidents_clean)) {
+    type_col <- col
+    cat(sprintf("Utilisation de la colonne : %s\n\n", type_col))
+    break
+  }
+}
+
+if (!is.null(type_col)) {
+  # Nettoyer les données
+  types <- accidents_clean[[type_col]]
+  types <- types[!is.na(types) & types != ""]
+  
+  if (length(types) > 0) {
+    # Calculer la distribution
+    distribution <- table(types)
+    distribution <- sort(distribution, decreasing = TRUE)
+    n_types_uniques <- length(distribution)
+    
+    cat(sprintf("%d types d'accidents différents identifiés\n\n", n_types_uniques))
+    
+    # Afficher les 10 principaux
+    top_n <- min(10, n_types_uniques)
+    cat(sprintf("TOP %d DES TYPES D'ACCIDENTS :\n\n", top_n))
+    
+    for (i in 1:top_n) {
+      type <- names(distribution)[i]
+      count <- distribution[i]
+      pourcentage <- round(count / length(types) * 100, 1)
+      cumulatif <- round(sum(distribution[1:i]) / length(types) * 100, 1)
+      
+      # Barre de progression visuelle
+      barre_longueur <- round(pourcentage / 2)
+      barre <- paste(rep("█", barre_longueur), collapse = "")
+      
+      cat(sprintf("   %2d. %-35s : %4d %-5s %5.1f%% %s (cumul: %4.1f%%)\n", 
+                  i, substr(type, 1, 35), count, barre, pourcentage, 
+                  ifelse(i <= 3, "", ""), cumulatif))
+    }
+    
+    # Statistiques supplémentaires
+    cat("\nSTATISTIQUES DE DISTRIBUTION :\n")
+    cat(sprintf("      • 3 premiers types : %.1f%% des accidents\n", 
+                round(sum(distribution[1:3]) / length(types) * 100, 1)))
+    cat(sprintf("      • 5 premiers types : %.1f%% des accidents\n", 
+                round(sum(distribution[1:5]) / length(types) * 100, 1)))
+    cat(sprintf("      • Type dominant : '%s' (%.1f%%)\n", 
+                names(distribution)[1], 
+                round(distribution[1] / length(types) * 100, 1)))
+    
+    # Diversité des types
+    indice_simpson <- 1 - sum((distribution / length(types))^2)
+    cat(sprintf("      • Indice de diversité (Simpson) : %.3f\n", indice_simpson))
+    
+  } else {
+    cat("Aucun type d'accident valide trouvé\n")
+  }
+} else {
+  cat("Aucune colonne de type d'accident trouvée\n")
+  cat("   Colonnes disponibles :", paste(names(accidents_clean)[1:5], collapse = ", "), "...\n")
+}
+cat("\n")
+
+
+cat("3. ANALYSE PAR NIVEAU DE GRAVITÉ\n")
+if ("gravite" %in% names(accidents_clean)) {
+  # Nettoyer la variable gravité
+  accidents_clean$gravite_clean <- accidents_clean$gravite
+  accidents_clean$gravite_clean[is.na(accidents_clean$gravite_clean)] <- "Non spécifié"
+  accidents_clean$gravite_clean[accidents_clean$gravite_clean == ""] <- "Non spécifié"
+  
+  # Calculer la distribution
+  gravite_table <- table(accidents_clean$gravite_clean)
+  gravite_table <- sort(gravite_table, decreasing = TRUE)
+  
+  cat("DISTRIBUTION DES ACCIDENTS PAR GRAVITÉ :\n\n")
+  
+  total_accidents <- nrow(accidents_clean)
+  for (i in seq_along(gravite_table)) {
+    gravite_nom <- names(gravite_table)[i]
+    count <- gravite_table[i]
+    pourcentage <- round(count / total_accidents * 100, 1)
+    
+    # Émoji pour la gravité
+    emoji <- ""
+    if (grepl("mortel", tolower(gravite_nom))) emoji <- ""
+    if (grepl("bless", tolower(gravite_nom))) emoji <- ""
+    if (grepl("matériel", tolower(gravite_nom))) emoji <- ""
+    if (grepl("spécifié", tolower(gravite_nom))) emoji <- ""
+    
+    # Barre de progression
+    barre_longueur <- round(pourcentage / 3)
+    barre <- paste(rep("█", barre_longueur), collapse = "")
+    
+    cat(sprintf("   %s %-20s : %4d %-15s %5.1f%%\n", 
+                emoji, gravite_nom, count, barre, pourcentage))
+  }
+  
+  # Ratio gravité
+  if ("Mortel" %in% names(gravite_table) && "Avec blessés" %in% names(gravite_table)) {
+    ratio_mortel_blesses <- round(gravite_table["Mortel"] / gravite_table["Avec blessés"], 2)
+    cat(sprintf("\nRatio accidents mortels/blessés : 1:%.2f\n", ratio_mortel_blesses))
+  }
+  
+} else if (all(c("tues", "blesses") %in% names(accidents_clean))) {
+  # Calculer la gravité à partir des données brutes
+  cat("GRAVITÉ CALCULÉE À PARTIR DES DONNÉES BRUTES :\n\n")
+  
+  mortels <- sum(accidents_clean$tues > 0, na.rm = TRUE)
+  avec_blesses <- sum(accidents_clean$blesses > 0 & accidents_clean$tues == 0, na.rm = TRUE)
+  materiel <- nrow(accidents_clean) - mortels - avec_blesses
+  
+  cat(sprintf("Accidents mortels         : %4d (%.1f%%)\n", 
+              mortels, round(mortels/nrow(accidents_clean)*100, 1)))
+  cat(sprintf("Accidents avec blessés    : %4d (%.1f%%)\n", 
+              avec_blesses, round(avec_blesses/nrow(accidents_clean)*100, 1)))
+  cat(sprintf("Accidents matériels       : %4d (%.1f%%)\n", 
+              materiel, round(materiel/nrow(accidents_clean)*100, 1)))
+  
+} else {
+  cat("Données de gravité non disponibles\n")
+}
+cat("\n")
+
+
+cat("4. ÉVOLUTION TEMPORELLE\n")
+if ("annee" %in% names(accidents_clean)) {
+  # Préparation des données
+  accidents_par_an <- accidents_clean %>%
+    filter(!is.na(annee)) %>%
+    group_by(annee) %>%
+    summarise(
+      Total = n(),
+      Mortels = sum(gravite == "Mortel", na.rm = TRUE),
+      Avec_Blesses = sum(gravite == "Avec blessés", na.rm = TRUE),
+      .groups = 'drop'
+    ) %>%
+    arrange(annee)
+  
+  if (nrow(accidents_par_an) > 0) {
+    cat("ÉVOLUTION ANNUELLE DES ACCIDENTS :\n\n")
+    
+    # Tableau formaté
+    cat("   Année   Total  Mortels  Blessés  Taux Mortel\n")
+    for (i in 1:nrow(accidents_par_an)) {
+      an <- accidents_par_an$annee[i]
+      total <- accidents_par_an$Total[i]
+      mortels <- accidents_par_an$Mortels[i]
+      blesses <- accidents_par_an$Avec_Blesses[i]
+      
+      # Remplacement de la syntaxe Python par syntaxe R
+      taux_mortel <- if (total > 0) round(mortels / total * 100, 1) else 0
+      
+      # Indicateur de tendance
+      tendance <- ""
+      if (i > 1) {
+        evolution <- total - accidents_par_an$Total[i-1]
+        if (evolution > 0) tendance <- "↗️ "
+        if (evolution < 0) tendance <- "↘️ "
+        if (evolution == 0) tendance <- "➡️"  
+      }
+      
+      cat(sprintf("   %s %6s %7d %8d %9d %11.1f%% %s\n", 
+                  ifelse(i == 1, " ", tendance),
+                  an, total, mortels, blesses, taux_mortel, 
+                  ifelse(mortels == max(accidents_par_an$Mortels), "", "")))
+    }
+    
+    # Tendances globales
+    if (nrow(accidents_par_an) >= 2) {
+      cat("\nTENDANCES GLOBALES :\n")
+      
+      # Évolution totale 
+      evolution_total <- if (accidents_par_an$Total[1] > 0) {
+        round((accidents_par_an$Total[nrow(accidents_par_an)] - accidents_par_an$Total[1]) / 
+                accidents_par_an$Total[1] * 100, 1)
+      } else {
+        0
+      }
+      
+      # Évolution des mortels 
+      evolution_mortels <- if (accidents_par_an$Mortels[1] > 0) {
+        round((accidents_par_an$Mortels[nrow(accidents_par_an)] - accidents_par_an$Mortels[1]) / 
+                accidents_par_an$Mortels[1] * 100, 1)
+      } else {
+        0
+      }
+      
+      cat(sprintf("      • Accidents totaux     : %+.1f%%\n", evolution_total))
+      cat(sprintf("      • Accidents mortels    : %+.1f%%\n", evolution_mortels))
+      
+      # Moyenne mobile sur 2 ans
+      if (nrow(accidents_par_an) >= 3) {
+        accidents_par_an$Moyenne_Mobile <- stats::filter(accidents_par_an$Total, rep(1/2, 2), sides = 1)
+        moyenne_mobile_val <- mean(accidents_par_an$Moyenne_Mobile[3:nrow(accidents_par_an)], na.rm = TRUE)
+        cat(sprintf("      • Moyenne mobile (2 ans) : %.1f accidents/an\n", moyenne_mobile_val))
+      }
+      
+      # Identification des pics
+      pic_index <- which.max(accidents_par_an$Total)
+      pic_annee <- accidents_par_an$annee[pic_index]
+      pic_valeur <- accidents_par_an$Total[pic_index]
+      cat(sprintf("\nPIC D'ACCIDENTS : %s (%d accidents)\n", pic_annee, pic_valeur))
+    }
+  } else {
+    cat("Aucune donnée temporelle valide\n")
+  }
+} else {
+  cat("Données temporelles non disponibles\n")
+}
+cat("\n")
+
+
+cat("5. STATISTIQUES DÉTAILLÉES DES VICTIMES\n")
+if (all(c("blesses", "tues") %in% names(accidents_clean))) {
+  # Filtrer les données valides
+  blesses_data <- accidents_clean$blesses[!is.na(accidents_clean$blesses)]
+  tues_data <- accidents_clean$tues[!is.na(accidents_clean$tues)]
+  
+  if (length(blesses_data) > 0 && length(tues_data) > 0) {
+    cat("   A. STATISTIQUES DES BLESSÉS\n")
+    cat("   ", paste(rep("-", 40), collapse = ""), "\n")
+    
+    # Statistiques descriptives
+    stats_blesses <- list(
+      "Moyenne" = round(mean(blesses_data), 2),
+      "Médiane" = median(blesses_data),
+      "Écart-type" = round(sd(blesses_data), 2),
+      "Minimum" = min(blesses_data),
+      "Maximum" = max(blesses_data),
+      "1er quartile (Q1)" = quantile(blesses_data, 0.25),
+      "3ème quartile (Q3)" = quantile(blesses_data, 0.75),
+      "Coefficient de variation" = round(sd(blesses_data) / mean(blesses_data) * 100, 1)
+    )
+    
+    for (nom in names(stats_blesses)) {
+      cat(sprintf("      • %-25s : %10s\n", nom, stats_blesses[[nom]]))
+    }
+    
+    # Distribution
+    cat(sprintf("\n      • Accidents sans blessés     : %d (%.1f%%)\n",
+                sum(blesses_data == 0), 
+                sum(blesses_data == 0) / length(blesses_data) * 100))
+    cat(sprintf("      • Accidents avec 1 blessé     : %d (%.1f%%)\n",
+                sum(blesses_data == 1), 
+                sum(blesses_data == 1) / length(blesses_data) * 100))
+    cat(sprintf("      • Accidents avec 2+ blessés   : %d (%.1f%%)\n",
+                sum(blesses_data >= 2), 
+                sum(blesses_data >= 2) / length(blesses_data) * 100))
+    
+    cat("\n   B. STATISTIQUES DES TUÉS\n")
+    cat("   ", paste(rep("-", 40), collapse = ""), "\n")
+    
+    stats_tues <- list(
+      "Moyenne" = round(mean(tues_data), 3),
+      "Médiane" = median(tues_data),
+      "Écart-type" = round(sd(tues_data), 3),
+      "Minimum" = min(tues_data),
+      "Maximum" = max(tues_data),
+      "1er quartile (Q1)" = quantile(tues_data, 0.25),
+      "3ème quartile (Q3)" = quantile(tues_data, 0.75)
+    )
+    
+    for (nom in names(stats_tues)) {
+      cat(sprintf("      • %-25s : %10s\n", nom, stats_tues[[nom]]))
+    }
+    
+    # Distribution
+    cat(sprintf("\n      • Accidents sans décès       : %d (%.1f%%)\n",
+                sum(tues_data == 0), 
+                sum(tues_data == 0) / length(tues_data) * 100))
+    cat(sprintf("      • Accidents avec 1 décès     : %d (%.1f%%)\n",
+                sum(tues_data == 1), 
+                sum(tues_data == 1) / length(tues_data) * 100))
+    cat(sprintf("      • Accidents avec 2+ décès    : %d (%.1f%%)\n",
+                sum(tues_data >= 2), 
+                sum(tues_data >= 2) / length(tues_data) * 100))
+    
+    cat("\n   C. ANALYSE CONJOINTE\n")
+    
+    # Corrélation
+    if (nrow(accidents_clean) > 1) {
+      correlation <- cor(accidents_clean$blesses, accidents_clean$tues, 
+                         use = "complete.obs", method = "pearson")
+      cat(sprintf("      • Corrélation blessés/tués   : %.3f\n", correlation))
+    }
+    
+    # Ratio global
+    total_blesses <- sum(blesses_data)
+    total_tues <- sum(tues_data)
+    
+    if (total_tues > 0) {
+      ratio_blesses_tues <- round(total_blesses / total_tues, 2)
+      cat(sprintf("      • Ratio blessés/décès        : %.2f:1\n", ratio_blesses_tues))
+      cat(sprintf("      • Gravité relative          : %d blessés pour %d décès\n", 
+                  total_blesses, total_tues))
+    }
+    
+    # Accidents avec victimes
+    accidents_avec_victimes <- sum(blesses_data > 0 | tues_data > 0)
+    taux_accidents_victimes <- round(accidents_avec_victimes / nrow(accidents_clean) * 100, 1)
+    cat(sprintf("      • Accidents avec victimes    : %d (%.1f%%)\n", 
+                accidents_avec_victimes, taux_accidents_victimes))
+    
+    # Indice de gravité composite
+    indice_gravite <- (total_tues * 10 + total_blesses) / nrow(accidents_clean)
+    cat(sprintf("      • Indice de gravité composite : %.2f\n", indice_gravite))
+    
+  } else {
+    cat("Données de victimes incomplètes\n")
+  }
+} else {
+  cat("Données de blessés/tués non disponibles\n")
+}
+
+cat("SAUVEGARDE DES RÉSULTATS STATISTIQUES\n")
+
+# Créer le répertoire de sortie
+stats_dir <- "statistiques"
+if (!dir.exists(stats_dir)) {
+  dir.create(stats_dir, recursive = TRUE)
+  cat(sprintf("Répertoire créé : %s/\n", stats_dir))
+}
+
+# Sauvegarder un résumé statistique
+if (exists("accidents_clean") && nrow(accidents_clean) > 0) {
+  # Créer un dataframe de résumé
+  resume_stats <- data.frame(
+    Métrique = c(
+      "Nombre total d'accidents",
+      "Période analysée",
+      "Nombre total de décès",
+      "Nombre total de blessés",
+      "Accidents avec décès",
+      "Accidents avec blessés",
+      "Types d'accidents uniques",
+      "Densité annuelle (accidents/an)"
+    ),
+    Valeur = c(
+      format_nombre(nrow(accidents_clean)),
+      ifelse("date" %in% names(accidents_clean), 
+             paste(format(min(accidents_clean$date, na.rm = TRUE), "%Y-%m-%d"),
+                   "à",
+                   format(max(accidents_clean$date, na.rm = TRUE), "%Y-%m-%d")),
+             "Non disponible"),
+      ifelse("tues" %in% names(accidents_clean),
+             format_nombre(sum(accidents_clean$tues, na.rm = TRUE)),
+             "Non disponible"),
+      ifelse("blesses" %in% names(accidents_clean),
+             format_nombre(sum(accidents_clean$blesses, na.rm = TRUE)),
+             "Non disponible"),
+      ifelse("tues" %in% names(accidents_clean),
+             paste(format_nombre(sum(accidents_clean$tues > 0, na.rm = TRUE)),
+                   sprintf("(%.1f%%)", 
+                           sum(accidents_clean$tues > 0, na.rm = TRUE) / nrow(accidents_clean) * 100)),
+             "Non disponible"),
+      ifelse("blesses" %in% names(accidents_clean),
+             paste(format_nombre(sum(accidents_clean$blesses > 0, na.rm = TRUE)),
+                   sprintf("(%.1f%%)", 
+                           sum(accidents_clean$blesses > 0, na.rm = TRUE) / nrow(accidents_clean) * 100)),
+             "Non disponible"),
+      ifelse(!is.null(type_col) && type_col %in% names(accidents_clean),
+             format_nombre(length(unique(accidents_clean[[type_col]][!is.na(accidents_clean[[type_col]])]))),
+             "Non disponible"),
+      ifelse("date" %in% names(accidents_clean),
+             format_nombre(round(nrow(accidents_clean) / 
+                                  as.numeric(difftime(max(accidents_clean$date, na.rm = TRUE),
+                                                      min(accidents_clean$date, na.rm = TRUE),
+                                                      units = "days") + 1) * 365, 2)),
+             "Non disponible")
+    ),
+    Date_Analyse = Sys.Date(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Sauvegarder en CSV
+  write.csv(resume_stats, file.path(stats_dir, "resume_statistiques.csv"), 
+            row.names = FALSE, fileEncoding = "UTF-8")
+  cat(sprintf("Résumé statistique sauvegardé : %s\n", "resume_statistiques.csv"))
+  
+  # Sauvegarder les données de distribution
+  if (!is.null(type_col) && type_col %in% names(accidents_clean)) {
+    distribution_types <- table(accidents_clean[[type_col]])
+    distribution_df <- data.frame(
+      Type = names(distribution_types),
+      Fréquence = as.numeric(distribution_types),
+      Pourcentage = round(as.numeric(distribution_types) / sum(distribution_types) * 100, 2)
+    ) %>%
+      arrange(desc(Fréquence))
+    
+    write.csv(distribution_df, file.path(stats_dir, "distribution_types_accidents.csv"), 
+              row.names = FALSE, fileEncoding = "UTF-8")
+    cat(sprintf("Distribution des types sauvegardée : %s\n", 
+                "distribution_types_accidents.csv"))
+  }
+  
+  cat(sprintf("\nTous les résultats statistiques ont été sauvegardés dans : %s/\n", stats_dir))
+}
+```
+
+## ÉTAPE 6 : Visualisation des Données
+
+```{r}
+cat("\n", paste(rep("=", 80), collapse = ""), "\n")
+cat(paste(rep("=", 80), collapse = ""), "\n\n")
+
+# Fonction pour vérifier et installer les packages si nécessaire
+check_and_install_packages <- function(packages) {
+  for (pkg in packages) {
+    if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+      cat(sprintf("Installation du package : %s...\n", pkg))
+      install.packages(pkg, dependencies = TRUE, quiet = TRUE)
+      library(pkg, character.only = TRUE)
+      cat(sprintf("Package %s installé et chargé\n", pkg))
+    } else {
+      library(pkg, character.only = TRUE)
+      cat(sprintf("Package %s déjà chargé\n", pkg))
+    }
+  }
+}
+
+# Liste des packages nécessaires
+required_packages <- c("ggplot2", "dplyr", "gridExtra", "scales", "RColorBrewer")
+
+# Vérifier et installer les packages
+check_and_install_packages(required_packages)
+
+# Vérifier si accidents_clean existe
+if (!exists("accidents_clean")) {
+  cat("ERREUR : L'objet 'accidents_clean' n'existe pas\n")
+  cat("Exécutez d'abord les étapes de nettoyage des données\n")
+  cat("Si nécessaire, chargez les données avec : accidents_clean <- readRDS('data/accidents_clean.rds')\n\n")
+} else {
+  # Vérification de base des données
+  cat(sprintf("Données disponibles : %d observations, %d variables\n", 
+              nrow(accidents_clean), ncol(accidents_clean)))
+  cat(sprintf("   Période : %s à %s\n\n",
+              min(accidents_clean$date, na.rm = TRUE),
+              max(accidents_clean$date, na.rm = TRUE)))
+  
+
+  cat("1. DISTRIBUTION DES TYPES D'ACCIDENTS (Top 10)\n")
+  # Identifier la colonne de type d'accident
+  type_col <- NULL
+  possible_names <- c("type_accident", "Nature incident", "Nature", "Type")
+  
+  for (col in possible_names) {
+    if (col %in% names(accidents_clean)) {
+      type_col <- col
+      cat(sprintf("Utilisation de la colonne : %s\n", type_col))
+      break
+    }
+  }
+  
+  if (!is.null(type_col)) {
+    # Nettoyer les types (supprimer les NA et les valeurs vides)
+    valid_types <- accidents_clean[[type_col]]
+    valid_types <- valid_types[!is.na(valid_types) & valid_types != ""]
+    
+    if (length(valid_types) > 0) {
+      # Compter les occurrences
+      type_counts <- table(valid_types)
+      type_counts <- sort(type_counts, decreasing = TRUE)
+      
+      # Prendre les 10 premiers
+      top_n <- min(10, length(type_counts))
+      top_types <- type_counts[1:top_n]
+      
+      # Préparer les données pour ggplot
+      df_types <- data.frame(
+        Type = names(top_types),
+        Count = as.numeric(top_types),
+        stringsAsFactors = FALSE
+      )
+      
+      # Trier pour le graphique
+      df_types <- df_types[order(df_types$Count), ]
+      df_types$Type <- factor(df_types$Type, levels = df_types$Type)
+      
+      # Calculer le pourcentage
+      total_accidents <- sum(type_counts)
+      df_types$Percentage <- round(df_types$Count / total_accidents * 100, 1)
+      
+      # Créer le graphique
+      p1 <- ggplot(df_types, aes(x = Type, y = Count)) +
+        geom_bar(stat = "identity", fill = "#2E86AB", alpha = 0.8, width = 0.7) +
+        geom_text(aes(label = paste0(Count, " (", Percentage, "%)")), 
+                  hjust = -0.1, size = 3.5, color = "black") +
+        coord_flip() +
+        scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+        labs(
+          title = "Top 10 des types d'accidents ferroviaires",
+          subtitle = paste("Basé sur", total_accidents, "accidents analysés"),
+          x = "Type d'accident",
+          y = "Nombre d'occurrences"
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(
+          plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+          plot.subtitle = element_text(size = 10, color = "gray40", hjust = 0.5),
+          axis.text.y = element_text(size = 10, color = "black"),
+          axis.text.x = element_text(size = 9),
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank()
+        )
+      
+      print(p1)
+      cat(sprintf("Graphique créé : %d types d'accidents uniques\n", length(type_counts)))
+      cat(sprintf("Types les plus fréquents : '%s' (%d occurrences)\n", 
+                  names(type_counts)[1], type_counts[1]))
+      
+    } else {
+      cat("Aucun type d'accident valide trouvé\n")
+    }
+  } else {
+    cat("Aucune colonne de type d'accident trouvée\n")
+    cat("Colonnes disponibles :", paste(names(accidents_clean)[1:5], collapse = ", "), "...\n")
+  }
+  cat("\n")
+  
+  
+  cat("2. RÉPARTITION PAR NIVEAU DE GRAVITÉ\n") 
+  if ("gravite" %in% names(accidents_clean)) {
+    # Nettoyer les données de gravité
+    accidents_clean$gravite_clean <- accidents_clean$gravite
+    accidents_clean$gravite_clean[is.na(accidents_clean$gravite_clean)] <- "Non spécifié"
+    accidents_clean$gravite_clean[accidents_clean$gravite_clean == ""] <- "Non spécifié"
+    
+    # Calculer les statistiques
+    gravite_counts <- table(accidents_clean$gravite_clean)
+    df_gravite <- data.frame(
+      Gravite = names(gravite_counts),
+      Count = as.numeric(gravite_counts),
+      stringsAsFactors = FALSE
+    )
+    
+    # Calculer les pourcentages
+    df_gravite$Percentage <- round(df_gravite$Count / sum(df_gravite$Count) * 100, 1)
+    df_gravite$Label <- paste0(df_gravite$Count, "\n(", df_gravite$Percentage, "%)")
+    
+    # Palette de couleurs adaptée
+    colors_gravite <- c(
+      "Mortel" = "#D32F2F"
+      "Avec blessés" = "#FF9800", 
+      "Matériel seulement" = "#388E3C",
+      "Non spécifié" = "#757575"
+    )
+    
+    # Graphique en barres
+    p2 <- ggplot(df_gravite, aes(x = reorder(Gravite, Count), y = Count, fill = Gravite)) +
+      geom_bar(stat = "identity", width = 0.6) +
+      geom_text(aes(label = Label), vjust = -0.3, size = 4) +
+      scale_fill_manual(values = colors_gravite) +
+      labs(
+        title = "Répartition des accidents par niveau de gravité",
+        subtitle = paste("Total :", sum(df_gravite$Count), "accidents"),
+        x = "Niveau de gravité",
+        y = "Nombre d'accidents",
+        fill = "Gravité"
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        plot.subtitle = element_text(size = 10, color = "gray40", hjust = 0.5),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
+      ) +
+      ylim(0, max(df_gravite$Count) * 1.15)
+    
+    print(p2)
+    cat(sprintf("Graphique créé : %d catégories de gravité\n", nrow(df_gravite)))
+    
+    # Statistiques supplémentaires
+    if ("Mortel" %in% df_gravite$Gravite) {
+      mortels <- df_gravite$Count[df_gravite$Gravite == "Mortel"]
+      cat(sprintf("Accidents mortels : %d (%.1f%% du total)\n", 
+                  mortels, 
+                  df_gravite$Percentage[df_gravite$Gravite == "Mortel"]))
+    }
+    
+  } else {
+    cat("Colonne 'gravite' non trouvée\n")
+    
+    # Alternative : calculer la gravité à partir de blessés/tués
+    if (all(c("blesses", "tues") %in% names(accidents_clean))) {
+      cat("Tentative de calcul de la gravité à partir de blessés/tués...\n")
+      accidents_clean$gravite_calc <- ifelse(
+        accidents_clean$tues > 0, "Mortel",
+        ifelse(accidents_clean$blesses > 0, "Avec blessés", "Matériel seulement")
+      )
+      
+      gravite_counts <- table(accidents_clean$gravite_calc)
+      cat("Distribution calculée :\n")
+      print(gravite_counts)
+    }
+  }
+  cat("\n")
+  
+ 
+  cat("3. ÉVOLUTION TEMPORELLE DES ACCIDENTS\n")
+  
+  # Vérifier la présence de variables temporelles
+  time_vars <- c("date", "annee", "mois")
+  available_time_vars <- time_vars[time_vars %in% names(accidents_clean)]
+  
+  if (length(available_time_vars) > 0) {
+    cat("   Variables temporelles disponibles :", paste(available_time_vars, collapse = ", "), "\n")
+    
+    # Évolution par année (si disponible)
+    if ("annee" %in% available_time_vars) {
+      # Compter par année
+      annee_data <- accidents_clean %>%
+        group_by(annee) %>%
+        summarise(
+          Count = n(),
+          .groups = 'drop'
+        ) %>%
+        arrange(annee)
+      
+      # Calculer l'évolution
+      annee_data$Evolution <- c(NA, diff(annee_data$Count))
+      
+      # Graphique d'évolution
+      p3a <- ggplot(annee_data, aes(x = annee, y = Count, group = 1)) +
+        geom_line(color = "#1976D2", size = 1.5, alpha = 0.8) +
+        geom_point(color = "#1976D2", size = 4) +
+        geom_text(aes(label = Count), vjust = -1, size = 4, fontface = "bold") +
+        labs(
+          title = "Évolution annuelle des accidents ferroviaires",
+          subtitle = "Tendance temporelle",
+          x = "Année",
+          y = "Nombre d'accidents"
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(
+          plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+          plot.subtitle = element_text(size = 10, color = "gray40", hjust = 0.5),
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
+        ) +
+        scale_y_continuous(expand = expansion(mult = c(0.1, 0.2)))
+      
+      print(p3a)
+      cat(sprintf("   Graphique d'évolution annuelle créé : %d années\n", nrow(annee_data)))
+      
+      # Statistiques temporelles
+      cat(sprintf("Période couverte : %s à %s\n", 
+                  min(annee_data$annee, na.rm = TRUE), 
+                  max(annee_data$annee, na.rm = TRUE)))
+      cat(sprintf("Année avec le plus d'accidents : %s (%d accidents)\n",
+                  annee_data$annee[which.max(annee_data$Count)],
+                  max(annee_data$Count)))
+      cat(sprintf("Année avec le moins d'accidents : %s (%d accidents)\n",
+                  annee_data$annee[which.min(annee_data$Count)],
+                  min(annee_data$Count)))
+    }
+    
+    # Distribution mensuelle (si mois disponible)
+    if ("mois" %in% available_time_vars) {
+      # Convertir mois en numérique pour le tri
+      accidents_clean$mois_num <- as.numeric(accidents_clean$mois)
+      
+      mois_data <- accidents_clean %>%
+        filter(!is.na(mois_num)) %>%
+        group_by(mois_num) %>%
+        summarise(Count = n(), .groups = 'drop') %>%
+        arrange(mois_num)
+      
+      # Noms des mois en français
+      mois_noms <- c("Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+                     "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre")
+      
+      mois_data$Mois <- mois_noms[mois_data$mois_num]
+      
+      p3b <- ggplot(mois_data, aes(x = factor(Mois, levels = mois_noms), y = Count)) +
+        geom_bar(stat = "identity", fill = "#4CAF50", alpha = 0.7) +
+        geom_text(aes(label = Count), vjust = -0.5, size = 4) +
+        labs(
+          title = "Distribution mensuelle des accidents",
+          subtitle = "Variation saisonnière",
+          x = "Mois",
+          y = "Nombre d'accidents"
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(
+          plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+          plot.subtitle = element_text(size = 10, color = "gray40", hjust = 0.5),
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
+        ) +
+        ylim(0, max(mois_data$Count) * 1.15)
+      
+      print(p3b)
+      cat(sprintf("Graphique de distribution mensuelle créé\n"))
+    }
+    
+  } else {
+    cat("Aucune variable temporelle trouvée\n")
+  }
+  cat("\n")
+  
+  
+  cat("4. ANALYSE DES VICTIMES (BLESSÉS ET TUÉS)\n")
+  
+  if (all(c("blesses", "tues") %in% names(accidents_clean))) {
+    # Calculer les totaux
+    total_blesses <- sum(accidents_clean$blesses, na.rm = TRUE)
+    total_tues <- sum(accidents_clean$tues, na.rm = TRUE)
+    
+    # Préparer les données
+    df_victimes <- data.frame(
+      Categorie = c("Blessés", "Tués"),
+      Nombre = c(total_blesses, total_tues)
+    )
+    
+    # Statistiques supplémentaires
+    accidents_avec_blesses <- sum(accidents_clean$blesses > 0, na.rm = TRUE)
+    accidents_avec_tues <- sum(accidents_clean$tues > 0, na.rm = TRUE)
+    
+    # Graphique
+    p4 <- ggplot(df_victimes, aes(x = Categorie, y = Nombre, fill = Categorie)) +
+      geom_bar(stat = "identity", width = 0.5) +
+      geom_text(aes(label = format(Nombre, big.mark = " ")), 
+                vjust = -0.5, size = 5, fontface = "bold") +
+      scale_fill_manual(values = c("Blessés" = "#FF9800", "Tués" = "#D32F2F")) +
+      labs(
+        title = "Nombre total de victimes",
+        subtitle = paste("Basé sur", nrow(accidents_clean), "accidents analysés"),
+        x = "",
+        y = "Nombre de victimes"
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        plot.subtitle = element_text(size = 10, color = "gray40", hjust = 0.5),
+        legend.position = "none",
+        axis.text.x = element_text(size = 12, face = "bold")
+      ) +
+      ylim(0, max(df_victimes$Nombre) * 1.2)
+    
+    print(p4)
+    
+    # Afficher les statistiques
+    cat(sprintf("Nombre total de blessés : %d\n", total_blesses))
+    cat(sprintf("Nombre total de tués : %d\n", total_tues))
+    cat(sprintf("Accidents avec blessés : %d (%.1f%%)\n", 
+                accidents_avec_blesses,
+                accidents_avec_blesses/nrow(accidents_clean)*100))
+    cat(sprintf("Accidents mortels : %d (%.1f%%)\n", 
+                accidents_avec_tues,
+                accidents_avec_tues/nrow(accidents_clean)*100))
+    
+    # Ratio victimes/accident
+    if (total_blesses > 0) {
+      cat(sprintf("Ratio blessés/accident : %.2f\n", total_blesses/nrow(accidents_clean)))
+    }
+    if (total_tues > 0) {
+      cat(sprintf("Ratio tués/accident : %.2f\n", total_tues/nrow(accidents_clean)))
+    }
+    
+  } else {
+    cat("Colonnes 'blesses' et/ou 'tues' non trouvées\n")
+  }
+  cat("\n")
+  
+
+  cat("5. DISTRIBUTION PAR JOUR DE LA SEMAINE\n")
+  if ("jour_semaine" %in% names(accidents_clean)) {
+    # Noms des jours en français
+    jours_fr <- c("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+    jours_fr_cap <- c("Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche")
+    
+    # Standardiser les noms des jours
+    accidents_clean$jour_std <- tolower(trimws(accidents_clean$jour_semaine))
+    
+    # Compter par jour
+    jour_counts <- accidents_clean %>%
+      group_by(jour_std) %>%
+      summarise(Count = n(), .groups = 'drop') %>%
+      arrange(match(jour_std, jours_fr))
+    
+    # Créer un dataframe complet avec tous les jours
+    df_jours <- data.frame(
+      Jour = jours_fr_cap,
+      Jour_lower = jours_fr,
+      Count = 0,
+      stringsAsFactors = FALSE
+    )
+    
+    # Remplir avec les données disponibles
+    for (i in 1:nrow(df_jours)) {
+      jour <- df_jours$Jour_lower[i]
+      if (jour %in% jour_counts$jour_std) {
+        df_jours$Count[i] <- jour_counts$Count[jour_counts$jour_std == jour]
+      }
+    }
+    
+    # Calculer le pourcentage
+    df_jours$Percentage <- round(df_jours$Count / sum(df_jours$Count) * 100, 1)
+    
+    # Graphique
+    p5 <- ggplot(df_jours, aes(x = factor(Jour, levels = jours_fr_cap), y = Count)) +
+      geom_bar(stat = "identity", fill = "#673AB7", alpha = 0.8, width = 0.6) +
+      geom_line(aes(group = 1), color = "#FF9800", size = 1.5, alpha = 0.6) +
+      geom_point(color = "#FF9800", size = 3) +
+      geom_text(aes(label = paste0(Count, "\n(", Percentage, "%)")), 
+                vjust = -0.5, size = 3.5) +
+      labs(
+        title = "Distribution des accidents par jour de la semaine",
+        subtitle = "Ligne orange : tendance hebdomadaire",
+        x = "Jour de la semaine",
+        y = "Nombre d'accidents"
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        plot.subtitle = element_text(size = 10, color = "gray40", hjust = 0.5),
+        axis.text.x = element_text(size = 10, angle = 0)
+      ) +
+      ylim(0, max(df_jours$Count) * 1.25)
+    
+    print(p5)
+    
+    # Statistiques
+    jour_max <- df_jours$Jour[which.max(df_jours$Count)]
+    count_max <- max(df_jours$Count)
+    jour_min <- df_jours$Jour[which.min(df_jours$Count)]
+    count_min <- min(df_jours$Count)
+    
+    cat(sprintf("Jour avec le plus d'accidents : %s (%d accidents, %.1f%%)\n", 
+                jour_max, count_max, df_jours$Percentage[which.max(df_jours$Count)]))
+    cat(sprintf("Jour avec le moins d'accidents : %s (%d accidents, %.1f%%)\n", 
+                jour_min, count_min, df_jours$Percentage[which.min(df_jours$Count)]))
+    
+  } else {
+    cat("Colonne 'jour_semaine' non trouvée\n")
+  }
+  cat("\n")
+  
+  
+  cat("6. SAUVEGARDE DES VISUALISATIONS\n") 
+  # Créer le répertoire de sortie s'il n'existe pas
+  output_dir <- "visualisations"
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+    cat(sprintf("Répertoire créé : %s/\n", output_dir))
+  }
+  
+  # Sauvegarder chaque graphique
+  graphs <- list(p1, p2, p3a, p4, p5)
+  graph_names <- c("types_accidents", "gravite", "evolution_annuelle", 
+                   "victimes", "jours_semaine")
+  
+  for (i in seq_along(graphs)) {
+    if (exists(paste0("p", i))) {
+      filename <- file.path(output_dir, paste0(graph_names[i], ".png"))
+      ggsave(filename, get(paste0("p", i)), 
+             width = 10, height = 6, dpi = 300)
+      cat(sprintf("Graphique sauvegardé : %s\n", basename(filename)))
+    }
+  }
+}
+```
+
+## ÉTAPE 7 : Analyse Avancée
+
+```{r}
+# Vérifier si les données existent
+if (!exists("accidents_clean")) {
+  cat("ERREUR : accidents_clean n'existe pas\n")
+  cat("Exécutez d'abord les étapes précédentes\n")
+} else {
+  cat("Données disponibles pour l'analyse\n\n")
+  
+  cat("1. ANALYSE DES ACCIDENTS MORTELS\n")
+  # Vérifier si gravite existe
+  if ("gravite" %in% names(accidents_clean)) {
+    mortels <- sum(accidents_clean$gravite == "Mortel", na.rm = TRUE)
+    cat("Accidents mortels :", mortels, "\n")
+    cat("Pourcentage total :", round(mortels / nrow(accidents_clean) * 100, 1), "%\n")
+  } else {
+    cat("Colonne gravite non trouvée\n")
+  }
+  
+  # Nombre de tués
+  if ("tues" %in% names(accidents_clean)) {
+    total_tues <- sum(accidents_clean$tues, na.rm = TRUE)
+    cat("Total tués :", total_tues, "\n")
+  }
+  
+  cat("\n")
+  
+  cat("2. ANALYSE DES BLESSÉS\n")
+  if ("blesses" %in% names(accidents_clean)) {
+    total_blesses <- sum(accidents_clean$blesses, na.rm = TRUE)
+    accidents_avec_blesses <- sum(accidents_clean$blesses > 0, na.rm = TRUE)
+    
+    cat("Total blessés :", total_blesses, "\n")
+    cat("Accidents avec blessés :", accidents_avec_blesses, "\n")
+    cat("Pourcentage avec blessés :", round(accidents_avec_blesses / nrow(accidents_clean) * 100, 1), "%\n")
+  }
+  
+  cat("\n")
+  
+  cat("3. TYPES D'ACCIDENTS LES PLUS GRAVES\n")
+  if ("type_accident" %in% names(accidents_clean)) {
+    # Types avec le plus d'accidents mortels
+    if ("gravite" %in% names(accidents_clean)) {
+      types_mortels <- table(accidents_clean$type_accident[accidents_clean$gravite == "Mortel"])
+      types_mortels <- sort(types_mortels, decreasing = TRUE)
+      
+      if (length(types_mortels) > 0) {
+        cat("Types avec accidents mortels :\n")
+        for (i in 1:min(5, length(types_mortels))) {
+          cat("  ", names(types_mortels)[i], ":", types_mortels[i], "\n")
+        }
+      }
+    }
+  }
+  
+  cat("\n")
+  
+  cat("4. ANALYSE TEMPORELLE\n")
+  
+  if ("annee" %in% names(accidents_clean)) {
+    # Accidents par année
+    annee_counts <- table(accidents_clean$annee)
+    
+    cat("Évolution par année :\n")
+    for (an in sort(names(annee_counts))) {
+      cat("  ", an, ":", annee_counts[an], "accidents\n")
+    }
+    
+    # Tendance
+    if (length(annee_counts) > 1) {
+      annees <- sort(names(annee_counts))
+      premiere <- as.numeric(annee_counts[annees[1]])
+      derniere <- as.numeric(annee_counts[annees[length(annees)]])
+      evolution <- round((derniere - premiere) / premiere * 100, 1)
+      cat("\n  Tendance :", evolution, "%\n")
+    }
+  }
+  
+  cat("\n")
+  
+  cat("5. INDICATEURS CLÉS\n")
+  # Calculer les indicateurs
+  indicateurs <- list()
+  
+  # 1. Taux d'accidents mortels
+  if ("gravite" %in% names(accidents_clean)) {
+    mortels <- sum(accidents_clean$gravite == "Mortel", na.rm = TRUE)
+    indicateurs[["Accidents mortels"]] <- paste0(round(mortels / nrow(accidents_clean) * 100, 1), "%")
+  }
+  
+  # 2. Taux d'accidents avec blessés
+  if ("blesses" %in% names(accidents_clean)) {
+    avec_blesses <- sum(accidents_clean$blesses > 0, na.rm = TRUE)
+    indicateurs[["Accidents avec blessés"]] <- paste0(round(avec_blesses / nrow(accidents_clean) * 100, 1), "%")
+  }
+  
+  # 3. Décès pour 100 accidents
+  if ("tues" %in% names(accidents_clean)) {
+    total_tues <- sum(accidents_clean$tues, na.rm = TRUE)
+    indicateurs[["Décès/100 accidents"]] <- round(total_tues / nrow(accidents_clean) * 100, 2)
+  }
+  
+  # 4. Blessés pour 100 accidents
+  if ("blesses" %in% names(accidents_clean)) {
+    total_blesses <- sum(accidents_clean$blesses, na.rm = TRUE)
+    indicateurs[["Blessés/100 accidents"]] <- round(total_blesses / nrow(accidents_clean) * 100, 2)
+  }
+  
+  # Afficher les indicateurs
+  for (nom in names(indicateurs)) {
+    cat("  ", nom, ":", indicateurs[[nom]], "\n")
+  }
+  
+  cat("\n")
+  
+  cat("6. RECOMMANDATIONS\n")
+  cat("Recommandations principales :\n")
+  cat("1. Renforcer la sécurité aux endroits à risque\n")
+  cat("2. Améliorer la signalisation et l'éclairage\n")
+  cat("3. Former le personnel à la prévention\n")
+  cat("4. Développer des systèmes d'alerte\n")
+  cat("5. Faire des audits réguliers de sécurité\n")
+  
+  cat("\n")
+  
+  cat("7. SYNTHÈSE\n")
+  cat("Points clés :\n")
+  cat("• ", nrow(accidents_clean), "accidents analysés\n")
+  
+  if ("tues" %in% names(accidents_clean)) {
+    cat("• ", sum(accidents_clean$tues, na.rm = TRUE), "décès au total\n")
+  }
+  
+  if ("blesses" %in% names(accidents_clean)) {
+    cat("• ", sum(accidents_clean$blesses, na.rm = TRUE), "blessés au total\n")
+  }
+  
+  cat("\nPriorités :\n")
+  cat("1. Réduire les accidents mortels\n")
+  cat("2. Diminuer le nombre de blessés\n")
+  cat("3. Améliorer la prévention\n")
+  cat("4. Surveiller les tendances\n")
+}
+```
+
+## Conclusion
+
+This study demonstrates a comprehensive methodology for analyzing time series of railway accidents, structured around data preparation, aggregation, visualization, and advanced analysis.
+
+## Principaux Enseignements
+
+1. **Préparation des données** : La conversion des enregistrements bruts en séries temporelles utilisables, y compris la gestion des dates et l'extraction des variables temporelles, est essentielle.
+2. **Multi-level Analysis**: Analyse multi-niveaux : Les agrégations quotidiennes, mensuelles et annuelles révèlent des modèles dans la fréquence et la gravité des accidents.
+3. **Insights visuels** : Les graphiques à barres, les diagrammes linéaires, les cartes thermiques et les nuages de points offrent des vues complémentaires des tendances et des points chauds des accidents.
+
+## Practical Implications
+
+Cette méthodologie soutient la gestion ferroviaire en permettant :
+- L'identification des périodes et des lieux à haut risque
+- La détection d'anomalies dans les modèles d'accidents
+- La planification et la maintenance basées sur les données
+- La communication efficace des tendances complexes grâce à des synthèses visuelles
+
+## Future Perspectives
+
+Les méthodes sont transférables à d'autres systèmes de transport et ensembles de données. Elles fournissent une base pour la détection de tendances, l'évaluation des risques et les mesures préventives, contribuant ainsi à améliorer la sécurité et l'efficacité opérationnelle.

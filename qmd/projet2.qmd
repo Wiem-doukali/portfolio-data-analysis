@@ -1,0 +1,1281 @@
+---
+title: "Analyse Décisionnelle des Ventes Commerciales"
+subtitle: "Approche Data Warehouse et Business Intelligence pour l’aide à la décision"
+author: "Wiem DOUKALI"
+date: "4 janvier 2026"
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Afficher le code"
+    code-overflow: wrap
+    code-line-numbers: true
+---
+
+
+## Introduction
+
+L'analyse des données commerciales est fondamentale pour optimiser les performances d'une entreprise. Ce projet démontre la mise en place d'une solution complète de Business Intelligence, de l'extraction des données à la génération d'insights actionnables.
+
+## Objectifs principaux 
+
+- Structurer un data warehouse relationnel avec modèle en étoile
+- Calculer des indicateurs de performance clés (KPIs) pertinents
+- Identifier les tendances et patterns dans les ventes
+- Fournir des recommandations basées sur les données
+
+## Méthodologie
+
+### Diagramme méthodologique
+```{mermaid}
+graph TD
+    A[Données CSV - Ventes commerciales]
+    A --> B[Étape 1: Chargement et exploration]
+    B --> C[Vérifier structure et qualité]
+    C --> D[Nettoyer et transformer]
+    
+    D --> E[Étape 2: Modélisation DW]
+    E --> F[Créer DIM_DATE]
+    E --> G[Créer DIM_PRODUCT]
+    E --> H[Créer DIM_STORE]
+    E --> I[Créer FACT_SALES]
+    
+    F --> J[Étape 3: Analyse]
+    G --> J
+    H --> J
+    I --> J
+    
+    J --> K[Visualisations interactives]
+    J --> L[Calcul de KPIs]
+    J --> M[Analyse approfondie]
+    
+    K --> N[Tableau de bord décisionnel]
+    L --> N
+    M --> N
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style C fill:#f3e5f5
+    style D fill:#f3e5f5
+    style E fill:#e8f5e8
+    style F fill:#fff3e0
+    style G fill:#fff3e0
+    style H fill:#fff3e0
+    style I fill:#fff3e0
+    style J fill:#ffebee
+    style K fill:#e8f5e8
+    style L fill:#e8f5e8
+    style M fill:#e8f5e8
+    style N fill:#2c3e50,stroke:#333,color:white
+```
+
+## Étape 1 : Installation et importation des bibliothèques
+
+```{r}
+# Définir le miroir CRAN si nécessaire
+if (getOption("repos") == "@CRAN@") {
+  options(repos = c(CRAN = "https://cloud.r-project.org"))
+}
+
+# Fonction d'installation améliorée
+install_if_missing <- function(p) {
+  if (!require(p, character.only = TRUE, quietly = TRUE)) {
+    install.packages(p, dependencies = TRUE, quiet = TRUE)
+    library(p, character.only = TRUE)
+    cat("✓ Package installé et chargé :", p, "\n")
+  } else {
+    cat("✓ Package déjà présent :", p, "\n")
+  }
+}
+
+# Liste des packages nécessaires
+packages <- c("tidyverse", "lubridate", "ggplot2", "plotly", "DT",
+              "scales", "corrplot", "gridExtra", "reshape2", "knitr",
+              "kableExtra", "readr", "stringr", "forcats", "patchwork")
+
+cat("Installation et chargement des packages :\n")
+invisible(sapply(packages, install_if_missing))
+
+# Options globales
+options(stringsAsFactors = FALSE)
+options(scipen = 999)
+options(warn = 1)
+options(dplyr.width = Inf)
+
+cat("\nEnvironnement R configuré\n")
+cat("R version :", R.version.string, "\n")
+```
+
+```{r}
+# Charger les packages nécessaires
+if (!require("readr")) install.packages("readr", quiet = TRUE)
+if (!require("dplyr")) install.packages("dplyr", quiet = TRUE)
+if (!require("tidyr")) install.packages("tidyr", quiet = TRUE)
+if (!require("knitr")) install.packages("knitr", quiet = TRUE)
+if (!require("kableExtra")) install.packages("kableExtra", quiet = TRUE)
+
+library(readr)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(kableExtra)
+
+# Chemin du fichier
+file_path <- "Magasin_Sales_Dataset.csv"
+
+# Vérifier si le fichier existe
+if (file.exists(file_path)) {
+  cat("Fichier trouvé :", normalizePath(file_path), "\n")
+  
+  # Charger les données
+  df <- read_csv(file_path, show_col_types = FALSE)
+  
+  # Aperçu initial
+  cat("\nAPERÇU DU DATASET :\n")
+  cat(sprintf("Nombre d'enregistrements : %s\n", format(nrow(df), big.mark = " ")))
+  cat(sprintf("Nombre de variables : %d\n", ncol(df)))
+  
+  # Vérifier si la colonne Date existe
+  if ("Date" %in% names(df)) {
+    cat(sprintf("Période couverte : %s → %s\n", 
+                min(df$Date, na.rm = TRUE), 
+                max(df$Date, na.rm = TRUE)))
+  }
+  
+  cat("\nStructure des données :\n")
+  str(df)
+  
+} else {
+  cat("Fichier non trouvé :", file_path, "\n")
+  cat("Création de données de démonstration...\n")
+  
+  # Créer des données fictives si le fichier n'existe pas
+  set.seed(123)
+  n_ventes <- 1000
+  
+  df <- tibble(
+    Date = sample(seq(as.Date("2025-01-01"), as.Date("2025-12-31"), by = "day"), 
+                  n_ventes, replace = TRUE),
+    Product = sample(c("Produit A", "Produit B", "Produit C", "Produit D"), 
+                     n_ventes, replace = TRUE),
+    Category = sample(c("Électronique", "Vêtements", "Alimentation"), 
+                      n_ventes, replace = TRUE),
+    Quantity = sample(1:10, n_ventes, replace = TRUE),
+    Unit_Price = round(runif(n_ventes, 10, 200), 2),
+    Store = sample(c("Magasin Paris", "Magasin Lyon", "Magasin Marseille"), 
+                   n_ventes, replace = TRUE)
+  ) %>%
+    mutate(
+      Total_Sales = Quantity * Unit_Price,
+      Transaction_ID = row_number()
+    )
+  
+  cat("Données de démonstration créées\n")
+}
+
+cat("\nAperçu des données (5 premières lignes) :\n")
+df %>%
+  head(5) %>%
+  kable(format = "html", caption = "Données de ventes commerciales") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+## ÉTAPE 3 : Exploration et Nettoyage des Données
+
+```{r}
+# Charger dplyr si nécessaire
+if (!require("dplyr", quietly = TRUE)) {
+  install.packages("dplyr", quiet = TRUE)
+  library(dplyr)
+}
+
+if (!require("tidyr", quietly = TRUE)) {
+  install.packages("tidyr", quiet = TRUE)
+  library(tidyr)
+}
+
+### 1. Analyse de la qualité des données
+cat("1. ANALYSE DE LA QUALITÉ :\n")
+if (exists("df") && is.data.frame(df)) {
+  
+  # Vérification des types de données
+  cat("Types de données par colonne :\n")
+  type_summary <- df %>%
+    summarise(across(everything(), ~paste(class(.), collapse = ", "))) %>%
+    pivot_longer(everything(), names_to = "Colonne", values_to = "Type")
+  
+  print(as.data.frame(type_summary))
+  cat("\n")
+  
+  # Valeurs manquantes
+  cat("Valeurs manquantes :\n")
+  missing_summary <- df %>%
+    summarise(across(everything(), ~sum(is.na(.)))) %>%
+    pivot_longer(everything(), names_to = "Colonne", values_to = "NA_Count") %>%
+    mutate(NA_Percent = round(NA_Count / nrow(df) * 100, 2)) %>%
+    filter(NA_Count > 0)
+  
+  if (nrow(missing_summary) > 0) {
+    print(as.data.frame(missing_summary))
+  } else {
+    cat("Aucune valeur manquante détectée\n")
+  }
+  
+  # Statistiques descriptives
+  cat("\nStatistiques descriptives (variables numériques) :\n")
+  numeric_data <- df %>% select(where(is.numeric))
+  
+  if (ncol(numeric_data) > 0) {
+    print(summary(numeric_data))
+  } else {
+    cat("Aucune variable numérique trouvée\n")
+  }
+  
+} else {
+  cat("Le dataframe 'df' n'existe pas ou n'est pas valide\n")
+}
+```
+
+```{r}
+### 2. Nettoyage et préparation
+cat("\n2. NETTOYAGE ET PRÉPARATION :\n")
+
+# Vérifier si df existe
+if (!exists("df") || !is.data.frame(df)) {
+  cat("Erreur : Le dataframe 'df' n'existe pas\n")
+} else {
+  # Création d'une copie nettoyée
+  df_clean <- df
+  
+  # 2.1 - Suppression des doublons
+  initial_rows <- nrow(df_clean)
+  df_clean <- unique(df_clean)  # Utiliser unique() au lieu de distinct()
+  removed_duplicates <- initial_rows - nrow(df_clean)
+  cat(sprintf("Doublons supprimés : %d\n", removed_duplicates))
+  
+  # 2.2 - Gestion des valeurs manquantes
+  na_count <- sum(is.na(df_clean))
+  if (na_count > 0) {
+    cat(sprintf("\nTraitement des valeurs manquantes (%d valeurs au total) :\n", na_count))
+    
+    # Pour les dates
+    if ("Date" %in% names(df_clean)) {
+      na_dates <- sum(is.na(df_clean$Date))
+      if (na_dates > 0) {
+        df_clean <- df_clean[!is.na(df_clean$Date), ]
+        cat(sprintf("  • %d lignes avec Date manquante supprimées\n", na_dates))
+      }
+    }
+    
+    # Pour les valeurs numériques
+    numeric_cols <- sapply(df_clean, is.numeric)
+    if (any(numeric_cols)) {
+      for (col in names(df_clean)[numeric_cols]) {
+        na_vals <- sum(is.na(df_clean[[col]]))
+        if (na_vals > 0) {
+          median_val <- median(df_clean[[col]], na.rm = TRUE)
+          df_clean[[col]][is.na(df_clean[[col]])] <- median_val
+          cat(sprintf("  • %s : %d NA remplacés par médiane (%.2f)\n", 
+                      col, na_vals, median_val))
+        }
+      }
+    }
+    
+    # Pour les valeurs catégorielles (caractères)
+    char_cols <- sapply(df_clean, is.character)
+    if (any(char_cols)) {
+      for (col in names(df_clean)[char_cols]) {
+        na_vals <- sum(is.na(df_clean[[col]]))
+        if (na_vals > 0) {
+          df_clean[[col]][is.na(df_clean[[col]])] <- "Non spécifié"
+          cat(sprintf("  • %s : %d NA remplacés par 'Non spécifié'\n", col, na_vals))
+        }
+      }
+    }
+  } else {
+    cat("Aucune valeur manquante détectée\n")
+  }
+  
+  # 2.3 - Conversion des types de données
+  cat("\nConversion des types de données :\n")
+  
+  # Conversion de la date
+  if ("Date" %in% names(df_clean)) {
+    df_clean$Date <- as.Date(df_clean$Date)
+    cat("  • Date convertie en format Date\n")
+  }
+  
+  # Vérification et création de Total_Sales si nécessaire
+  if (!"Total_Sales" %in% names(df_clean)) {
+    if (all(c("Quantity", "Unit_Price") %in% names(df_clean))) {
+      df_clean$Total_Sales <- df_clean$Quantity * df_clean$Unit_Price
+      cat("  • Total_Sales calculé (Quantity × Unit_Price)\n")
+    }
+  }
+  
+  # 2.4 - Nettoyage du texte
+  text_cols <- c("Product", "Category", "Store")
+  text_cols <- text_cols[text_cols %in% names(df_clean)]
+  
+  if (length(text_cols) > 0) {
+    for (col in text_cols) {
+      # Supprimer les espaces
+      df_clean[[col]] <- trimws(df_clean[[col]])
+      # Mettre la première lettre en majuscule
+      df_clean[[col]] <- sapply(df_clean[[col]], function(x) {
+        if (is.na(x) || x == "") return(x)
+        words <- strsplit(x, " ")[[1]]
+        words <- paste0(toupper(substring(words, 1, 1)), 
+                       tolower(substring(words, 2)))
+        paste(words, collapse = " ")
+      })
+    }
+    cat(sprintf("  • Texte nettoyé pour %d colonnes\n", length(text_cols)))
+  }
+  
+  # Résumé final
+  cat("\nNettoyage terminé\n")
+  cat(sprintf("Dimensions finales : %d lignes × %d colonnes\n", 
+              nrow(df_clean), ncol(df_clean)))
+}
+```
+
+```{r}
+### 3. Transformation et enrichissement
+cat("\n3. TRANSFORMATION ET ENRICHISSEMENT :\n")
+
+# Vérifier si df_clean existe
+if (!exists("df_clean") || !is.data.frame(df_clean)) {
+  cat("Erreur : Le dataframe 'df_clean' n'existe pas\n")
+  cat("   Veuillez exécuter l'étape de nettoyage d'abord.\n")
+} else {
+  
+  # Créer une copie pour les transformations
+  df_transformed <- df_clean
+  
+  # Extraction des dimensions temporelles (si Date existe)
+  if ("Date" %in% names(df_transformed)) {
+    
+    # Convertir en Date si ce n'est pas déjà fait
+    if (!inherits(df_transformed$Date, "Date")) {
+      df_transformed$Date <- as.Date(df_transformed$Date)
+    }
+    
+    # Extraire les composantes de la date
+    df_transformed$Year <- as.numeric(format(df_transformed$Date, "%Y"))
+    df_transformed$Month_Num <- as.numeric(format(df_transformed$Date, "%m"))
+    
+    # Mois en français
+    french_months <- c("janvier", "février", "mars", "avril", "mai", "juin",
+                      "juillet", "août", "septembre", "octobre", "novembre", "décembre")
+    df_transformed$Month <- factor(french_months[df_transformed$Month_Num],
+                                   levels = french_months)
+    
+    df_transformed$Day <- as.numeric(format(df_transformed$Date, "%d"))
+    
+    # Trimestre
+    df_transformed$Quarter <- ceiling(df_transformed$Month_Num / 3)
+    
+    # Jour de la semaine en français
+    french_days <- c("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+    day_of_week_num <- as.numeric(format(df_transformed$Date, "%u"))  # 1=lundi, 7=dimanche
+    df_transformed$Day_of_Week <- factor(french_days[day_of_week_num],
+                                         levels = french_days)
+    
+    cat("Dimensions temporelles extraites\n")
+  }
+  
+  # Heure fictive (si non présente)
+  if (!"Hour" %in% names(df_transformed)) {
+    set.seed(123)  # Pour la reproductibilité
+    df_transformed$Hour <- sample(8:20, nrow(df_transformed), replace = TRUE)
+    cat("Heures fictives générées (8h-20h)\n")
+  }
+  
+  # Catégorisation des ventes (si Total_Sales existe)
+  if ("Total_Sales" %in% names(df_transformed)) {
+    df_transformed$Sales_Category <- ifelse(
+      df_transformed$Total_Sales < 50, "Petite vente (<50€)",
+      ifelse(df_transformed$Total_Sales < 200, "Moyenne vente (50-200€)",
+             "Grande vente (>200€)")
+    )
+    cat("Catégories de ventes créées\n")
+  }
+  
+  # Calcul de la marge (si Unit_Price et Quantity existent)
+  if (all(c("Unit_Price", "Quantity") %in% names(df_transformed))) {
+    # Coût fictif (60% du prix unitaire)
+    df_transformed$Cost <- df_transformed$Unit_Price * 0.6
+    df_transformed$Margin <- df_transformed$Total_Sales - (df_transformed$Cost * df_transformed$Quantity)
+    
+    # Taux de marge (éviter division par 0)
+    df_transformed$Margin_Rate <- ifelse(
+      df_transformed$Total_Sales > 0,
+      round(df_transformed$Margin / df_transformed$Total_Sales * 100, 1),
+      0
+    )
+    cat("Calculs de marge effectués\n")
+  }
+  
+  # ID de transaction (s'il n'existe pas)
+  if (!"Transaction_ID" %in% names(df_transformed)) {
+    df_transformed$Transaction_ID <- 1:nrow(df_transformed)
+    cat("IDs de transaction générés\n")
+  }
+  
+  # Résumé des transformations
+  original_cols <- names(df_clean)
+  new_cols <- setdiff(names(df_transformed), original_cols)
+  
+  cat("\nRÉSUMÉ DES TRANSFORMATIONS :\n")
+  cat("Nouvelles colonnes créées :\n")
+  if (length(new_cols) > 0) {
+    for (col in new_cols) {
+      cat(sprintf("  • %s\n", col))
+    }
+  } else {
+    cat("  Aucune nouvelle colonne créée\n")
+  }
+  
+  cat("\nSTATISTIQUES FINALES :\n")
+  cat(sprintf("  • Lignes : %s\n", format(nrow(df_transformed), big.mark = " ")))
+  cat(sprintf("  • Colonnes : %d\n", ncol(df_transformed)))
+  
+  if ("Date" %in% names(df_transformed)) {
+    cat(sprintf("  • Période : %s → %s\n", 
+                min(df_transformed$Date, na.rm = TRUE), 
+                max(df_transformed$Date, na.rm = TRUE)))
+  }
+  
+  if ("Total_Sales" %in% names(df_transformed)) {
+    total_sales <- sum(df_transformed$Total_Sales, na.rm = TRUE)
+    cat(sprintf("  • CA total : %s €\n", 
+                format(round(total_sales, 0), big.mark = " ")))
+  }
+  
+  # Aperçu des données transformées
+  cat("\nAPERÇU DES DONNÉES TRANSFORMÉES :\n")
+  cat("5 premières lignes :\n")
+  print(head(df_transformed, 5))
+  
+  cat("\nTransformation terminée avec succès\n")
+}
+```
+
+## ÉTAPE 4 : Construction du Data Warehouse
+
+## 1. Tables dimensionnelles
+```{r}
+# Vérifier si df_transformed existe
+if (!exists("df_transformed") || !is.data.frame(df_transformed)) {
+  cat("Erreur : Le dataframe 'df_transformed' n'existe pas\n")
+  cat("   Veuillez exécuter les étapes précédentes d'abord.\n")
+} else {
+  # Table DIM_DATE
+  cat("Création de DIM_DATE...\n")
+  
+  # Vérifier les colonnes nécessaires
+  date_cols <- c("Date", "Year", "Month", "Month_Num", "Day", "Quarter", "Day_of_Week", "Hour")
+  date_cols_present <- date_cols[date_cols %in% names(df_transformed)]
+  
+  if (length(date_cols_present) >= 1) {
+    # Extraire les données uniques
+    dim_date <- unique(df_transformed[date_cols_present])
+    
+    # Trier par date si disponible
+    if ("Date" %in% names(dim_date)) {
+      dim_date <- dim_date[order(dim_date$Date), ]
+    }
+    
+    # Ajouter l'ID
+    dim_date$Date_ID <- 1:nrow(dim_date)
+    
+    cat(sprintf("  • %d enregistrements uniques\n", nrow(dim_date)))
+    
+    if ("Date" %in% names(dim_date)) {
+      cat(sprintf("  • Période : %s → %s\n", 
+                  min(dim_date$Date, na.rm = TRUE), 
+                  max(dim_date$Date, na.rm = TRUE)))
+    }
+    
+    # Afficher un aperçu
+    cat("\nAperçu de DIM_DATE (10 premières lignes) :\n")
+    print(head(dim_date, 10))
+    
+  } else {
+    cat("Pas assez de colonnes de date disponibles\n")
+  }
+}
+
+# Table DIM_PRODUCT
+cat("\nCréation de DIM_PRODUCT:\n")
+
+if (exists("df_transformed") && is.data.frame(df_transformed)) {
+  
+  if (all(c("Product", "Category") %in% names(df_transformed))) {
+    # Extraire les combinaisons uniques
+    dim_product <- unique(df_transformed[c("Product", "Category")])
+    
+    # Trier par Product
+    dim_product <- dim_product[order(dim_product$Product), ]
+    
+    # Ajouter l'ID
+    dim_product$Product_ID <- 1:nrow(dim_product)
+    
+    cat(sprintf("  • %d produits uniques\n", nrow(dim_product)))
+    cat(sprintf("  • %d catégories\n", length(unique(dim_product$Category))))
+    
+    # Distribution par catégorie
+    cat("\nDistribution par catégorie :\n")
+    
+    # Compter les produits par catégorie
+    category_counts <- table(dim_product$Category)
+    
+    # Créer et afficher le tableau
+    category_table <- data.frame(
+      Catégorie = names(category_counts),
+      `Nombre de produits` = as.numeric(category_counts),
+      stringsAsFactors = FALSE
+    )
+    
+    # Trier par nombre décroissant
+    category_table <- category_table[order(-category_table$Nombre.de.produits), ]
+    print(category_table)
+    
+  } else {
+    cat("Colonnes Product ou Category manquantes\n")
+  }
+}
+# Table DIM_STORE
+cat("\nCréation de DIM_STORE:\n")
+
+if (exists("df_transformed") && is.data.frame(df_transformed)) {
+  
+  if ("Store" %in% names(df_transformed)) {
+    # Extraire les magasins uniques
+    unique_stores <- unique(df_transformed$Store)
+    
+    # Créer la table dimensionnelle
+    dim_store <- data.frame(
+      Store = sort(unique_stores),
+      Store_ID = 1:length(unique_stores),
+      stringsAsFactors = FALSE
+    )
+    
+    cat(sprintf("  • %d magasins uniques\n", nrow(dim_store)))
+    
+    # Top 5 magasins par nombre de transactions
+    cat("\nTop 5 magasins par nombre de transactions \n")
+    
+    # Compter les transactions
+    store_transactions <- table(df_transformed$Store)
+    
+    # Créer le tableau des tops
+    top_stores <- data.frame(
+      Magasin = names(store_transactions),
+      `Nombre de transactions` = as.numeric(store_transactions),
+      stringsAsFactors = FALSE
+    )
+    
+    # Trier et prendre les 5 premiers
+    top_stores <- top_stores[order(-top_stores$Nombre.de.transactions), ]
+    top_stores <- head(top_stores, 5)
+    
+    print(top_stores)
+    
+  } else {
+    cat("Colonne Store manquante\n")
+  }
+}
+
+cat("\nTables dimensionnelles créées avec succès\n")
+```
+
+## 2. Table de faits
+```{r}
+# Création de la table de faits
+fact_sales <- df_transformed %>%
+  left_join(dim_date %>% select(Date, Date_ID), by = "Date") %>%
+  left_join(dim_product %>% select(Product, Category, Product_ID), 
+            by = c("Product", "Category")) %>%
+  left_join(dim_store %>% select(Store, Store_ID), by = "Store") %>%
+  select(Transaction_ID, Date_ID, Product_ID, Store_ID,
+         Quantity, Unit_Price, Total_Sales, Sales_Category,
+         Cost, Margin, Margin_Rate)
+
+# Vérification
+cat("Vérification de la table de faits :\n")
+cat(sprintf("  • Lignes : %s\n", format(nrow(fact_sales), big.mark = " ")))
+cat(sprintf("  • Colonnes : %d\n", ncol(fact_sales)))
+cat(sprintf("  • CA total : %s €\n", 
+            format(round(sum(fact_sales$Total_Sales), 0), big.mark = " ")))
+cat(sprintf("  • Transactions uniques : %s\n", 
+            format(n_distinct(fact_sales$Transaction_ID), big.mark = " ")))
+
+# Vérification de l'intégrité référentielle
+cat("\nVérification de l'intégrité référentielle :\n")
+fk_check <- fact_sales %>%
+  summarise(
+    Date_ID_NA = sum(is.na(Date_ID)),
+    Product_ID_NA = sum(is.na(Product_ID)),
+    Store_ID_NA = sum(is.na(Store_ID))
+  )
+
+if (any(fk_check > 0)) {
+  cat("Clés étrangères manquantes :\n")
+  cat(sprintf("  • Date_ID : %d\n", fk_check$Date_ID_NA))
+  cat(sprintf("  • Product_ID : %d\n", fk_check$Product_ID_NA))
+  cat(sprintf("  • Store_ID : %d\n", fk_check$Store_ID_NA))
+} else {
+  cat("Toutes les clés étrangères sont valides\n")
+}
+```
+
+## ÉTAPE 5 : Analyse et Visualisation
+```{r}
+cat("1. TABLEAU DE BORD DES KPIs :\n")
+# Calcul des KPIs principaux
+kpis <- tibble(
+  KPI = c("CA Total", "Transactions", "Vente Moyenne", 
+          "Quantité Totale", "Marge Totale", "Taux de Marge Moyen",
+          "Produits Uniques", "Magasins", "Période (jours)"),
+  Valeur = c(
+    sum(fact_sales$Total_Sales, na.rm = TRUE),
+    nrow(fact_sales),
+    mean(fact_sales$Total_Sales, na.rm = TRUE),
+    sum(fact_sales$Quantity, na.rm = TRUE),
+    sum(fact_sales$Margin, na.rm = TRUE),
+    mean(fact_sales$Margin_Rate, na.rm = TRUE) * 100,  # Convertir en pourcentage
+    n_distinct(fact_sales$Product_ID),
+    n_distinct(fact_sales$Store_ID),
+    n_distinct(df_transformed$Date)
+  ),
+  Unite = c("€", "", "€", "", "€", "%", "", "", "jours")
+) %>%
+  mutate(
+    Valeur_Formatee = case_when(
+      Unite == "€" & Valeur >= 1000 ~ paste0(
+        format(round(Valeur/1000, 1), decimal.mark = ",", nsmall = 1), 
+        " k", Unite
+      ),
+      Unite == "€" ~ paste0(
+        format(round(Valeur, 0), big.mark = " ", decimal.mark = ","), 
+        " ", Unite
+      ),
+      Unite == "%" ~ paste0(
+        format(round(Valeur, 1), decimal.mark = ",", nsmall = 1), 
+        Unite
+      ),
+      Unite == "jours" ~ paste0(
+        format(round(Valeur, 0), big.mark = " "), 
+        " ", Unite
+      ),
+      TRUE ~ format(round(Valeur, 0), big.mark = " ")
+    )
+  )
+
+# Afficher le tableau des KPIs
+print(kpis %>% select(KPI, Valeur_Formatee))
+
+# Visualisation des KPIs
+ggplot(kpis, aes(x = reorder(KPI, Valeur), y = Valeur, fill = KPI)) +
+  geom_bar(stat = "identity", alpha = 0.8, width = 0.7) +
+  geom_text(
+    aes(label = Valeur_Formatee), 
+    hjust = -0.1, 
+    size = 3.5, 
+    fontface = "bold",
+    color = "black"
+  ) +
+  coord_flip(expand = FALSE) +
+  scale_fill_brewer(palette = "Set3") +
+  labs(
+    title = "TABLEAU DE BORD - INDICATEURS DE PERFORMANCE",
+    subtitle = "Analyse commerciale globale",
+    x = "",
+    y = ""
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(
+      face = "bold", 
+      size = 18, 
+      hjust = 0.5,
+      margin = margin(b = 10)
+    ),
+    plot.subtitle = element_text(
+      size = 14, 
+      color = "gray40", 
+      hjust = 0.5,
+      margin = margin(b = 20)
+    ),
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(
+      size = 12, 
+      face = "bold",
+      margin = margin(r = 10)
+    ),
+    panel.grid.major.x = element_line(color = "gray90"),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(20, 40, 20, 20),
+    panel.border = element_rect(color = "gray80", fill = NA, linewidth = 0.5)
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = function(x) {
+      ifelse(
+        x >= 1000, 
+        paste0(format(x/1000, decimal.mark = ",", nsmall = 1), "k"),
+        format(x, big.mark = " ", decimal.mark = ",")
+      )
+    }
+  )
+```
+
+## 2. Analyse temporelle
+```{r}
+# Préparation des données temporelles avec gestion des NA
+time_data <- fact_sales %>%
+  left_join(dim_date, by = "Date_ID") %>%
+  group_by(Month, Month_Num, Year) %>%
+  summarise(
+    CA_Total = sum(Total_Sales, na.rm = TRUE),
+    Transactions = n(),
+    Quantite_Totale = sum(Quantity, na.rm = TRUE),
+    Marge_Total = sum(Margin, na.rm = TRUE),
+    CA_Moyen = mean(Total_Sales, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(Year, Month_Num) %>%
+  mutate(
+    # Créer une étiquette mois-année si plusieurs années
+    Month_Label = if (length(unique(Year)) > 1) {
+      paste(Month, Year, sep = "\n")
+    } else {
+      Month
+    },
+    # Tendance du CA
+    Tendance_CA = (CA_Total / lag(CA_Total) - 1) * 100,
+    # Catégorie de performance
+    Performance = case_when(
+      Tendance_CA > 10 ~ "Excellente",
+      Tendance_CA > 0 ~ "Bonne",
+      Tendance_CA > -10 ~ "Stable",
+      TRUE ~ "A ameliorer"
+    )
+  ) %>%
+  # Réordonner les mois
+  mutate(Month_Label = factor(Month_Label, levels = unique(Month_Label)))
+
+# Afficher un résumé des données
+cat("Resume mensuel :\n")
+print(time_data %>% 
+  select(Month, Year, CA_Total, Transactions, CA_Moyen) %>%
+  mutate(
+    CA_Total = format(round(CA_Total, 0), big.mark = " ", decimal.mark = ","),
+    CA_Moyen = format(round(CA_Moyen, 0), big.mark = " ", decimal.mark = ","),
+    Year = as.character(Year)
+  ))
+cat("\n")
+
+# Graphique 1 : Évolution du CA avec tendance
+p1 <- ggplot(time_data, aes(x = Month_Label, y = CA_Total, group = 1)) +
+  geom_line(color = "#2c3e50", size = 1.2, alpha = 0.8) +
+  geom_point(aes(color = Performance, size = CA_Total)) +
+  geom_area(fill = "#3498db", alpha = 0.1) +
+  # Ajouter la tendance linéaire
+  geom_smooth(method = "lm", se = FALSE, color = "#e74c3c", linetype = "dashed", size = 0.8) +
+  # Text avec format amélioré
+  geom_text(
+    aes(label = paste0(
+      format(round(CA_Total/1000, 1), decimal.mark = ",", nsmall = 1), 
+      "k",
+      ifelse(!is.na(Tendance_CA), 
+             paste0("\n(", ifelse(Tendance_CA > 0, "+", ""), 
+                    format(round(Tendance_CA, 1), decimal.mark = ","), "%)"), 
+             "")
+    )),
+    vjust = -1, 
+    size = 3.2, 
+    fontface = "bold",
+    lineheight = 0.8
+  ) +
+  scale_color_manual(
+    values = c(
+      "Excellente" = "#27ae60",
+      "Bonne" = "#2ecc71",
+      "Stable" = "#f39c12",
+      "A ameliorer" = "#e74c3c"
+    )
+  ) +
+  scale_size_continuous(range = c(3, 7)) +
+  labs(
+    title = "EVOLUTION MENSUELLE DU CHIFFRE D'AFFAIRES",
+    subtitle = "Avec tendance lineaire et variation mensuelle (%)",
+    x = "Mois",
+    y = "Chiffre d'Affaires (€)",
+    color = "Performance",
+    size = "CA"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 11, face = "bold"),
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5, margin = margin(b = 10)),
+    plot.subtitle = element_text(size = 12, color = "gray40", hjust = 0.5, margin = margin(b = 15)),
+    legend.position = "top",
+    legend.box = "horizontal",
+    legend.margin = margin(b = 10),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.margin = margin(20, 20, 40, 20)
+  ) +
+  scale_y_continuous(
+    labels = function(x) {
+      paste0(format(x/1000, decimal.mark = ",", nsmall = 1), "k")
+    },
+    expand = expansion(mult = c(0.1, 0.2))
+  ) +
+  guides(size = "none")  # Masquer la légende de size
+
+# Graphique 2 : Transactions et panier moyen
+# Calculer le facteur d'échelle pour l'axe secondaire
+max_transactions <- max(time_data$Transactions, na.rm = TRUE)
+max_ca_moyen <- max(time_data$CA_Moyen, na.rm = TRUE)
+scale_factor <- max_transactions / max_ca_moyen / 5
+
+p2 <- ggplot(time_data, aes(x = Month_Label)) +
+  # Barres pour les transactions
+  geom_bar(
+    aes(y = Transactions, fill = "Transactions"),
+    stat = "identity",
+    alpha = 0.7,
+    width = 0.6
+  ) +
+  # Ligne pour le panier moyen (échelle secondaire)
+  geom_line(
+    aes(y = CA_Moyen * scale_factor, group = 1, color = "Panier moyen"),
+    size = 1.2
+  ) +
+  geom_point(
+    aes(y = CA_Moyen * scale_factor),
+    color = "#e74c3c",
+    size = 3
+  ) +
+  # Text pour transactions
+  geom_text(
+    aes(y = Transactions, label = format(Transactions, big.mark = " ")),
+    vjust = -0.5,
+    size = 3.2,
+    fontface = "bold"
+  ) +
+  # Text pour panier moyen
+  geom_text(
+    aes(y = CA_Moyen * scale_factor,
+        label = paste0(format(round(CA_Moyen, 0), big.mark = " "), "€")),
+    vjust = -1.5,
+    size = 3,
+    color = "#e74c3c"
+  ) +
+  scale_fill_manual(values = c("Transactions" = "#3498db")) +
+  scale_color_manual(values = c("Panier moyen" = "#e74c3c")) +
+  labs(
+    title = "TRANSACTIONS ET PANIER MOYEN PAR MOIS",
+    x = "Mois",
+    y = "Nombre de transactions",
+    fill = "",
+    color = ""
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 11, face = "bold"),
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5, margin = margin(b = 10)),
+    legend.position = "top",
+    legend.box = "horizontal",
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(20, 20, 40, 20)
+  ) +
+  scale_y_continuous(
+    sec.axis = sec_axis(
+      ~ . / scale_factor,
+      name = "Panier moyen (€)",
+      labels = function(x) format(round(x, 0), big.mark = " ")
+    )
+  )
+
+# Combiner les graphiques avec patchwork
+library(patchwork)
+
+combined_plot <- (p1 / p2) + 
+  plot_layout(heights = c(2, 1.5)) +
+  plot_annotation(
+    title = 'ANALYSE TEMPORELLE DES PERFORMANCES COMMERCIALES',
+    subtitle = 'Evolution mensuelle des principaux indicateurs',
+    theme = theme(
+      plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 14, color = "gray40", hjust = 0.5)
+    )
+  )
+
+print(combined_plot)
+
+# Statistiques supplémentaires
+cat("\nStatistiques temporelles :\n")
+time_stats <- time_data %>%
+  summarise(
+    CA_Total_Annee = sum(CA_Total, na.rm = TRUE),
+    Croissance_Moyenne = mean(Tendance_CA, na.rm = TRUE),
+    Meilleur_Mois = as.character(Month_Label[which.max(CA_Total)]),
+    CA_Meilleur_Mois = max(CA_Total, na.rm = TRUE),
+    Transactions_Totales = sum(Transactions, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+cat("* CA annuel total :", 
+    format(round(time_stats$CA_Total_Annee/1000, 1), decimal.mark = ",", nsmall = 1), 
+    "k€\n")
+cat("* Croissance moyenne mensuelle :", 
+    format(round(time_stats$Croissance_Moyenne, 1), decimal.mark = ","), 
+    "%\n")
+cat("* Meilleur mois :", time_stats$Meilleur_Mois, 
+    "(", format(round(time_stats$CA_Meilleur_Mois/1000, 1), decimal.mark = ",", nsmall = 1), "k€)\n")
+cat("* Transactions totales :", 
+    format(time_stats$Transactions_Totales, big.mark = " "), "\n")
+```
+
+## 3. Analyse par magasin
+```{r}
+# Vérifier que les données nécessaires existent
+if (!exists("fact_sales") || !exists("dim_store")) {
+  cat("Erreur : Les données nécessaires n'existent pas\n")
+} else {
+  # Charger forcats si nécessaire
+  if (!require("forcats", quietly = TRUE)) {
+    install.packages("forcats", quiet = TRUE)
+    library(forcats)
+  }
+  
+  # Préparation des données magasin
+  store_data <- merge(fact_sales, dim_store, by = "Store_ID") %>%
+    group_by(Store) %>%
+    summarise(
+      CA_Total = sum(Total_Sales, na.rm = TRUE),
+      Transactions = n(),
+      Quantite_Totale = sum(Quantity, na.rm = TRUE),
+      Vente_Moyenne = mean(Total_Sales, na.rm = TRUE),
+      Marge_Total = sum(Margin, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(CA_Total)) %>%
+    mutate(
+      Store = fct_reorder(Store, CA_Total),
+      Part_CA = CA_Total / sum(CA_Total) * 100
+    )
+  
+  # Graphique 1 : Performance des magasins
+  p_store1 <- ggplot(store_data, aes(x = Store, y = CA_Total, fill = Store)) +
+    geom_bar(stat = "identity", alpha = 0.8) +
+    geom_text(aes(label = paste0(format(round(CA_Total/1000, 0), big.mark = " "), "K €")),
+              hjust = 1.1, color = "white", size = 3.5, fontface = "bold") +
+    coord_flip() +
+    scale_fill_brewer(palette = "Set1") +
+    labs(
+      title = "PERFORMANCE COMMERCIALE PAR MAGASIN",
+      subtitle = "Classement par Chiffre d'Affaires",
+      x = "Magasin",
+      y = "Chiffre d'Affaires (€)"
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(size = 11, color = "gray40")
+    ) +
+    scale_y_continuous(labels = comma)
+  
+  print(p_store1)
+  
+  cat("\n\n")
+  
+  # Graphique 2 : Répartition du CA
+  p_store2 <- ggplot(store_data, aes(x = "", y = Part_CA, fill = Store)) +
+    geom_bar(stat = "identity", width = 1) +
+    coord_polar("y", start = 0) +
+    geom_text(aes(label = paste0(round(Part_CA, 1), "%")),
+              position = position_stack(vjust = 0.5),
+              color = "white", size = 4, fontface = "bold") +
+    scale_fill_brewer(palette = "Set1") +
+    labs(
+      title = "RÉPARTITION DU CHIFFRE D'AFFAIRES",
+      subtitle = "Part de chaque magasin dans le CA total",
+      fill = "Magasin"
+    ) +
+    theme_void() +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+      plot.subtitle = element_text(size = 11, color = "gray40", hjust = 0.5)
+    )
+  
+  print(p_store2)
+}
+```
+
+## 4. Analyse des produits
+```{r}
+# Vérifier que les données nécessaires existent
+if (!exists("fact_sales") || !exists("dim_product")) {
+  cat("Erreur : Les données nécessaires n'existent pas\n")
+} else {
+  # Préparation des données produits
+  prod_data <- merge(fact_sales, dim_product, by = "Product_ID") %>%
+    group_by(Product, Category) %>%
+    summarise(
+      CA_Total = sum(Total_Sales, na.rm = TRUE),
+      Transactions = n(),
+      Quantite_Totale = sum(Quantity, na.rm = TRUE),
+      Vente_Moyenne = mean(Total_Sales, na.rm = TRUE),
+      Marge_Total = sum(Margin, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(CA_Total)) %>%
+    mutate(
+      Product = factor(Product, levels = rev(unique(Product))),
+      Rank = row_number()
+    )
+  
+  # Top 10 produits
+  top_10 <- head(prod_data, 10)
+  
+  # Graphique 1 : Top 10 produits
+  p_prod1 <- ggplot(top_10, aes(x = Product, y = CA_Total, fill = Category)) +
+    geom_bar(stat = "identity", alpha = 0.8) +
+    geom_text(aes(label = paste0(format(round(CA_Total/1000, 0), big.mark = " "), "K €")),
+              hjust = -0.1, size = 3.5) +
+    coord_flip() +
+    scale_fill_brewer(palette = "Set3") +
+    labs(
+      title = "TOP 10 PRODUITS - CHIFFRE D'AFFAIRES",
+      subtitle = "Produits les plus performants",
+      x = "Produit",
+      y = "Chiffre d'Affaires (€)",
+      fill = "Catégorie"
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      plot.title = element_text(face = "bold", size = 16),
+      plot.subtitle = element_text(size = 12, color = "gray40")
+    ) +
+    scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.2)))
+  
+  print(p_prod1)
+}
+```
+
+## 5. Analyses avancées
+```{r}
+# Matrice de corrélation
+cat("MATRICE DE CORRELATION :\n\n")
+
+# Vérifier si corrplot est installé
+if (!require(corrplot)) {
+  install.packages("corrplot")
+  library(corrplot)
+}
+
+# Sélection des variables numériques
+corr_data <- fact_sales %>%
+  select(Quantity, Unit_Price, Total_Sales, Margin, Margin_Rate) %>%
+  cor(use = "complete.obs")
+
+# Afficher la matrice de corrélation sous forme de tableau
+cat("Tableau des correlations :\n")
+cat(paste(rep("-", 60), collapse = ""), "\n")
+print(round(corr_data, 3))
+cat("\n")
+
+# Visualisation améliorée
+par(mfrow = c(1, 1), mar = c(1, 1, 3, 1))
+corrplot(corr_data,
+         method = "circle",
+         type = "upper",
+         tl.col = "black",
+         tl.srt = 45,
+         tl.cex = 0.9,
+         addCoef.col = "black",
+         number.cex = 0.8,
+         col = colorRampPalette(c("#2E86AB", "white", "#EF476F"))(200),
+         mar = c(0, 0, 2, 0),
+         title = "MATRICE DE CORRELATION DES VARIABLES NUMERIQUES",
+         cl.pos = "r",
+         cl.ratio = 0.2,
+         cl.cex = 0.8,
+         cl.align.text = "l",
+         cl.offset = 0.5)
+
+# Ajouter une légende explicative
+mtext("Correlations : Vert = positive, Rouge = negative", 
+      side = 1, line = 0, cex = 0.8, col = "gray40")
+
+# Analyse de la marge
+cat("\nANALYSE DE LA MARGE :\n")
+marge_stats <- fact_sales %>%
+  summarise(
+    Marge_Totale = sum(Margin, na.rm = TRUE),
+    Taux_Marge_Moyen = mean(Margin_Rate, na.rm = TRUE) * 100,
+    Marge_Min = min(Margin_Rate, na.rm = TRUE) * 100,
+    Marge_Max = max(Margin_Rate, na.rm = TRUE) * 100,
+    Ecart_Type = sd(Margin_Rate, na.rm = TRUE) * 100,
+    Q1 = quantile(Margin_Rate, 0.25, na.rm = TRUE) * 100,
+    Median = median(Margin_Rate, na.rm = TRUE) * 100,
+    Q3 = quantile(Margin_Rate, 0.75, na.rm = TRUE) * 100
+  )
+
+# Affichage formaté
+cat("  * Marge totale :", 
+    format(round(marge_stats$Marge_Totale, 0), big.mark = " ", decimal.mark = ","), 
+    "€\n")
+cat("  * Taux de marge moyen :", 
+    format(round(marge_stats$Taux_Marge_Moyen, 1), decimal.mark = ","), 
+    "%\n")
+cat("  * Fourchette de marge :", 
+    format(round(marge_stats$Marge_Min, 1), decimal.mark = ","), 
+    "% à", 
+    format(round(marge_stats$Marge_Max, 1), decimal.mark = ","), 
+    "%\n")
+cat("  * Ecart-type :", 
+    format(round(marge_stats$Ecart_Type, 1), decimal.mark = ","), 
+    "%\n")
+cat("  * Quartiles : Q1=", 
+    format(round(marge_stats$Q1, 1), decimal.mark = ","), 
+    "%, Median=", 
+    format(round(marge_stats$Median, 1), decimal.mark = ","), 
+    "%, Q3=", 
+    format(round(marge_stats$Q3, 1), decimal.mark = ","), 
+    "%\n")
+
+# Graphique de distribution de la marge
+cat("\nDISTRIBUTION DES TAUX DE MARGE :\n")
+# Créer un histogramme de la marge
+par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
+
+# Histogramme
+hist(fact_sales$Margin_Rate * 100,
+     breaks = 30,
+     col = "#3498db",
+     border = "white",
+     main = "DISTRIBUTION DES TAUX DE MARGE",
+     xlab = "Taux de marge (%)",
+     ylab = "Frequence",
+     cex.main = 1.2,
+     cex.lab = 0.9,
+     cex.axis = 0.8)
+
+# Ajouter une ligne verticale pour la moyenne
+abline(v = marge_stats$Taux_Marge_Moyen, 
+       col = "#e74c3c", 
+       lwd = 2, 
+       lty = 2)
+text(marge_stats$Taux_Marge_Moyen, 
+     par("usr")[4] * 0.9, 
+     paste("Moyenne:", format(round(marge_stats$Taux_Marge_Moyen, 1), decimal.mark = ","), "%"),
+     col = "#e74c3c",
+     pos = 4,
+     cex = 0.8)
+
+# Boxplot
+boxplot(fact_sales$Margin_Rate * 100,
+        col = "#2ecc71",
+        border = "#27ae60",
+        main = "BOITE A MOUSSES DES TAUX DE MARGE",
+        ylab = "Taux de marge (%)",
+        cex.main = 1.2,
+        cex.lab = 0.9,
+        cex.axis = 0.8)
+
+# Ajouter des points pour les outliers
+outliers <- boxplot.stats(fact_sales$Margin_Rate * 100)$out
+if (length(outliers) > 0) {
+  points(rep(1, length(outliers)), outliers, 
+         col = "#e74c3c", 
+         pch = 19, 
+         cex = 0.7)
+}
+
+# Distribution des catégories de vente
+cat("\nDISTRIBUTION DES CATEGORIES DE VENTE :\n")
+if (exists("df_transformed") && "Sales_Category" %in% names(df_transformed)) {
+  sales_cat_dist <- df_transformed %>%
+    count(Sales_Category) %>%
+    mutate(Pourcentage = n / sum(n) * 100) %>%
+    arrange(desc(n))
+  
+  # Afficher le tableau
+  print(sales_cat_dist %>%
+    mutate(
+      n = format(n, big.mark = " "),
+      Pourcentage = paste0(format(round(Pourcentage, 1), decimal.mark = ","), "%")
+    ))
+  
+  # Graphique en barres
+  par(mfrow = c(1, 1), mar = c(7, 4, 4, 2))
+  
+  barplot(sales_cat_dist$Pourcentage,
+          names.arg = sales_cat_dist$Sales_Category,
+          col = c("#3498db", "#2ecc71", "#e74c3c", "#f39c12"),
+          main = "REPARTITION DES CATEGORIES DE VENTE",
+          ylab = "Pourcentage (%)",
+          las = 2,
+          cex.names = 0.8,
+          cex.axis = 0.8,
+          cex.main = 1.2,
+          ylim = c(0, max(sales_cat_dist$Pourcentage) * 1.2))
+  
+  # Ajouter les pourcentages sur les barres
+  text(x = 1:length(sales_cat_dist$Pourcentage),
+       y = sales_cat_dist$Pourcentage,
+       labels = paste0(format(round(sales_cat_dist$Pourcentage, 1), decimal.mark = ","), "%"),
+       pos = 3,
+       cex = 0.9,
+       col = "black")
+  
+} else {
+  cat("  La variable 'Sales_Category' n'existe pas dans df_transformed.\n")
+  cat("  Verifiez le nom de la variable ou creez-la.\n")
+}
+
+# Analyse de la rentabilité
+cat("\nANALYSE DE RENTABILITE :\n")
+# Calculer quelques indicateurs de rentabilité
+if (exists("fact_sales") && "Total_Sales" %in% names(fact_sales) && "Margin" %in% names(fact_sales)) {
+  rentabilite <- fact_sales %>%
+    summarise(
+      CA_Total = sum(Total_Sales, na.rm = TRUE),
+      Marge_Total = sum(Margin, na.rm = TRUE),
+      Rentabilite = Marge_Total / CA_Total * 100,
+      Transactions_Rentables = sum(Margin > 0, na.rm = TRUE) / n() * 100
+    )
+  cat("  * CA total :", 
+      format(round(rentabilite$CA_Total/1000, 1), decimal.mark = ",", nsmall = 1), 
+      "k€\n")
+  cat("  * Marge totale :", 
+      format(round(rentabilite$Marge_Total/1000, 1), decimal.mark = ",", nsmall = 1), 
+      "k€\n")
+  cat("  * Taux de rentabilite :", 
+      format(round(rentabilite$Rentabilite, 1), decimal.mark = ","), 
+      "%\n")
+  cat("  * Transactions rentables :", 
+      format(round(rentabilite$Transactions_Rentables, 1), decimal.mark = ","), 
+      "%\n")
+}
+
+# Réinitialiser les paramètres graphiques
+par(mfrow = c(1, 1))
+```
